@@ -26,7 +26,7 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: npm
