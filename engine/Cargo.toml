@@ -11,5 +11,5 @@ dirs = "5"              # cross-platform home / appdata paths
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 sha1 = "0.10"           # checksum verification
 hex = "0.4"
-sysinfo = "0.30"        # RAM and free disk space
+sysinfo = "0.39"        # RAM and free disk space
 serde = { version = "1", features = ["derive"] }  # so types can cross into JS later
