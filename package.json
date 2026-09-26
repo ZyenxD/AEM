@@ -14,7 +14,7 @@
     "@angular/compiler": "^20.1.4",
     "@angular/core": "^20.1.4",
     "@angular/forms": "^20.1.4",
-    "@angular/platform-browser": "^20.1.4",
+    "@angular/platform-browser": "^22.2.0",
     "@angular/router": "^20.1.4",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
