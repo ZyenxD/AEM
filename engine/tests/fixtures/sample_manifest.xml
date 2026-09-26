@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sdk-repository>
+
+  <license id="android-sdk-license" type="text">
+    Terms and Conditions
+
+    This is the Android Software Development Kit License Agreement.
+    By downloading any package you agree to these terms.
+  </license>
+
+  <!-- older emulator build -->
+  <remotePackage path="emulator">
+    <revision>
+      <major>34</major>
+      <minor>1</minor>
+      <micro>9</micro>
+    </revision>
+    <display-name>Android Emulator</display-name>
+    <uses-license ref="android-sdk-license"/>
+    <archives>
+      <archive>
+        <host-os>windows</host-os>
+        <host-arch>x64</host-arch>
+        <complete>
+          <size>300000000</size>
+          <checksum type="sha-1">1111111111111111111111111111111111111111</checksum>
+          <url>emulator-windows_x64-11000000.zip</url>
+        </complete>
+      </archive>
+    </archives>
+  </remotePackage>
+
+  <!-- newest emulator build -->
+  <remotePackage path="emulator">
+    <revision>
+      <major>35</major>
+      <minor>3</minor>
+      <micro>2</micro>
+    </revision>
+    <display-name>Android Emulator</display-name>
+    <uses-license ref="android-sdk-license"/>
+    <archives>
+      <archive>
+        <host-os>macosx</host-os>
+        <host-arch>aarch64</host-arch>
+        <complete>
+          <size>400000000</size>
+          <checksum type="sha-1">2222222222222222222222222222222222222222</checksum>
+          <url>emulator-darwin_aarch64-12000000.zip</url>
+        </complete>
+      </archive>
+      <archive>
+        <host-os>windows</host-os>
+        <host-arch>x64</host-arch>
+        <complete>
+          <size>420000000</size>
+          <checksum type="sha-1">3333333333333333333333333333333333333333</checksum>
+          <url>emulator-windows_x64-12000000.zip</url>
+        </complete>
+      </archive>
+    </archives>
+  </remotePackage>
+
+  <remotePackage path="platform-tools">
+    <revision>
+      <major>35</major>
+      <minor>0</minor>
+      <micro>2</micro>
+    </revision>
+    <display-name>Android SDK Platform-Tools</display-name>
+    <uses-license ref="android-sdk-license"/>
+    <archives>
+      <archive>
+        <complete>
+          <size>10000000</size>
+          <checksum type="sha-1">4444444444444444444444444444444444444444</checksum>
+          <url>platform-tools_r35.0.2.zip</url>
+        </complete>
+      </archive>
+    </archives>
+  </remotePackage>
+
+  <!-- system image: android 35, google_apis, arm64-v8a -->
+  <remotePackage path="system-images;android-35;google_apis;arm64-v8a">
+    <type-details>
+      <api-level>35</api-level>
+      <tag>
+        <id>google_apis</id>
+        <display>Google APIs</display>
+      </tag>
+      <abi>arm64-v8a</abi>
+    </type-details>
+    <revision>
+      <major>9</major>
+    </revision>
+    <display-name>Google APIs ARM 64 v8a System Image</display-name>
+    <uses-license ref="android-sdk-license"/>
+    <archives>
+      <archive>
+        <complete>
+          <size>1610612736</size>
+          <checksum type="sha-1">5555555555555555555555555555555555555555</checksum>
+          <url>sys-img/google_apis/arm64-v8a-35_r09.zip</url>
+        </complete>
+      </archive>
+    </archives>
+  </remotePackage>
+
+  <!-- system image: android 35, google_apis_playstore, x86_64 (different ABI) -->
+  <remotePackage path="system-images;android-35;google_apis_playstore;x86_64">
+    <type-details>
+      <api-level>35</api-level>
+      <tag>
+        <id>google_apis_playstore</id>
+        <display>Google Play</display>
+      </tag>
+      <abi>x86_64</abi>
+    </type-details>
+    <revision>
+      <major>7</major>
+    </revision>
+    <display-name>Google Play Intel x86_64 Atom System Image</display-name>
+    <uses-license ref="android-sdk-license"/>
+    <archives>
+      <archive>
+        <complete>
+          <size>1700000000</size>
+          <checksum type="sha-1">6666666666666666666666666666666666666666</checksum>
+          <url>sys-img/google_apis_playstore/x86_64-35_r07.zip</url>
+        </complete>
+      </archive>
+    </archives>
+  </remotePackage>
+
+  <!-- system image: android 34, google_apis, arm64-v8a (older API, same ABI) -->
+  <remotePackage path="system-images;android-34;google_apis;arm64-v8a">
+    <type-details>
+      <api-level>34</api-level>
+      <tag>
+        <id>google_apis</id>
+        <display>Google APIs</display>
+      </tag>
+      <abi>arm64-v8a</abi>
+    </type-details>
+    <revision>
+      <major>5</major>
+    </revision>
+    <display-name>Google APIs ARM 64 v8a System Image</display-name>
+    <uses-license ref="android-sdk-license"/>
+    <archives>
+      <archive>
+        <complete>
+          <size>1500000000</size>
+          <checksum type="sha-1">7777777777777777777777777777777777777777</checksum>
+          <url>sys-img/google_apis/arm64-v8a-34_r05.zip</url>
+        </complete>
+      </archive>
+    </archives>
+  </remotePackage>
+
+</sdk-repository>

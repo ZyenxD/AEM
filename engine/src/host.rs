@@ -3,7 +3,11 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum HostOs { MacOs, Windows, Linux }
+pub enum HostOs {
+    MacOs,
+    Windows,
+    Linux,
+}
 
 impl HostOs {
     pub fn current() -> HostOs {
@@ -25,7 +29,10 @@ impl HostOs {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum HostArch { Aarch64, X64 }
+pub enum HostArch {
+    Aarch64,
+    X64,
+}
 
 impl HostArch {
     pub fn current() -> HostArch {
@@ -44,7 +51,10 @@ impl HostArch {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Abi { Arm64V8a, X86_64 }
+pub enum Abi {
+    Arm64V8a,
+    X86_64,
+}
 
 impl Abi {
     pub fn manifest_name(self) -> &'static str {
@@ -82,7 +92,12 @@ pub fn detect() -> HostInfo {
     let mut sys = sysinfo::System::new();
     sys.refresh_memory();
 
-    HostInfo { os, arch, preferred_abi, total_ram_bytes: sys.total_memory() }
+    HostInfo {
+        os,
+        arch,
+        preferred_abi,
+        total_ram_bytes: sys.total_memory(),
+    }
 }
 
 /// Free bytes on the volume that contains `path`.

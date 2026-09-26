@@ -17,7 +17,11 @@ pub enum EngineError {
     },
 
     #[error("download of {name} is corrupted (expected checksum {expected}, got {actual})")]
-    Checksum { name: String, expected: String, actual: String },
+    Checksum {
+        name: String,
+        expected: String,
+        actual: String,
+    },
 
     #[error("could not unpack archive: {0}")]
     Archive(String),
