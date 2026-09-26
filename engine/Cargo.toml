@@ -7,7 +7,7 @@ edition = "2024"
 ureq = "2.9"            # small blocking HTTP client
 roxmltree = "0.19"      # read-only XML parser
 thiserror = "1"         # ergonomic error enums
-dirs = "5"              # cross-platform home / appdata paths
+dirs = "6"              # cross-platform home / appdata paths
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 sha1 = "0.10"           # checksum verification
 hex = "0.4"
