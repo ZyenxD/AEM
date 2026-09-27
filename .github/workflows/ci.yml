@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, macos-13, windows-latest, ubuntu-latest]
+        os: [macos-latest, windows-latest, ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -31,3 +31,9 @@ jobs:
 
       - name: Test
         run: cargo test -p engine
+
+      - name: Check Intel macOS build
+        if: runner.os == 'macOS'
+        run: |
+          rustup target add x86_64-apple-darwin
+          cargo check -p engine --target x86_64-apple-darwin
