@@ -120,7 +120,7 @@ pub fn fetch_catalog() -> Result<Catalog> {
     let mut catalog = Catalog::default();
     for url in MANIFEST_URLS {
         let xml = http_get_text(url)?;
-        let part = parse_manifest(&xml)?;
+        let part = parse_manifest(&xml, manifest_dir(url))?;
         catalog.packages.extend(part.packages);
         for license in part.licenses {
             if !catalog.licenses.iter().any(|l| l.id == license.id) {
@@ -145,8 +145,16 @@ fn http_get_text(url: &str) -> Result<String> {
         })
 }
 
+/// Directory of a manifest URL (up to and including the last `/`). Relative
+/// archive URLs inside a manifest are resolved against this, so system images
+/// listed in `sys-img/<tag>/sys-img2-3.xml` resolve under `sys-img/<tag>/`.
+fn manifest_dir(url: &str) -> &str {
+    url.rfind('/').map_or(BASE_URL, |i| &url[..=i])
+}
+
 /// Parse one manifest document. Pure function: no network, easy to unit test.
-pub fn parse_manifest(xml: &str) -> Result<Catalog> {
+/// `base_url` is the directory relative archive URLs are resolved against.
+pub fn parse_manifest(xml: &str, base_url: &str) -> Result<Catalog> {
     let doc = roxmltree::Document::parse(xml).map_err(|e| EngineError::Manifest(e.to_string()))?;
 
     let mut licenses = Vec::new();
@@ -211,7 +219,7 @@ pub fn parse_manifest(xml: &str) -> Result<Catalog> {
                 url: if raw_url.starts_with("http") {
                     raw_url
                 } else {
-                    format!("{BASE_URL}{raw_url}")
+                    format!("{base_url}{raw_url}")
                 },
                 size_bytes: first_text(a, "size")
                     .and_then(|s| s.parse().ok())
@@ -288,7 +296,7 @@ mod tests {
 
     #[test]
     fn parses_packages_and_licenses() {
-        let cat = parse_manifest(SAMPLE).expect("should parse");
+        let cat = parse_manifest(SAMPLE, BASE_URL).expect("should parse");
         assert!(!cat.packages.is_empty());
         assert!(cat.licenses.iter().any(|l| l.id == "android-sdk-license"));
 
@@ -304,7 +312,7 @@ mod tests {
 
     #[test]
     fn picks_archive_for_host() {
-        let cat = parse_manifest(SAMPLE).unwrap();
+        let cat = parse_manifest(SAMPLE, BASE_URL).unwrap();
         let host = mac_arm();
 
         let emu = cat
@@ -320,5 +328,19 @@ mod tests {
         let images = cat.system_images(&host);
         assert!(images.iter().all(|p| p.abi.as_deref() == Some("arm64-v8a")));
         assert_eq!(images.first().unwrap().api_level, Some(35));
+    }
+
+    #[test]
+    fn resolves_relative_urls_against_manifest_dir() {
+        let base = manifest_dir(MANIFEST_URLS[3]);
+        assert_eq!(
+            base,
+            "https://dl.google.com/android/repository/sys-img/google_apis_playstore/"
+        );
+        let cat = parse_manifest(SAMPLE, base).unwrap();
+        let img = cat
+            .find("system-images;android-35;google_apis;arm64-v8a")
+            .unwrap();
+        assert!(img.archives[0].url.starts_with(base));
     }
 }

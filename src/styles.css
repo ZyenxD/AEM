@@ -1,1 +1,43 @@
-/* You can add global styles to this file, and also import other style files */
+:root {
+  --bg: #16181d;
+  --panel: #1e2128;
+  --text: #e8eaed;
+  --muted: #9aa0a6;
+  --accent: #4b8bf5;
+  --danger: #e5484d;
+  --ok: #3fb950;
+  --pending: #d29922;
+  --radius: 10px;
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.bar { display: flex; align-items: center; justify-content: space-between; }
+.actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.pending { background: var(--pending); }
+.dot.on { background: var(--ok); }
+
+button, a.primary { font: inherit; padding: 8px 14px; border-radius: var(--radius); cursor: pointer; }
+button { background: var(--panel); color: var(--text); border: 1px solid var(--muted); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary, a.primary { background: var(--accent); color: white; border: 0; text-decoration: none; }
+button.danger { color: var(--danger); background: transparent; border: 1px solid currentColor; }
+
+input, select { font: inherit; padding: 6px 8px; border-radius: 6px; }
+progress { width: 100%; }
+
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.error { color: var(--danger); }
+.licence-text {
+  max-height: 280px; overflow: auto; white-space: pre-wrap;
+  background: var(--panel); padding: 12px; border-radius: var(--radius);
+}

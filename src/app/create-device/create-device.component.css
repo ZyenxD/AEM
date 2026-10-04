@@ -1,0 +1,5 @@
+form { display: grid; gap: 16px; }
+label { display: grid; gap: 6px; }
+label.radio { display: flex; align-items: center; gap: 8px; }
+fieldset { border: 1px solid var(--panel); border-radius: var(--radius); display: grid; gap: 6px; }
+.note { color: var(--muted); margin: 0; }

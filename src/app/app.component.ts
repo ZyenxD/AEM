@@ -1,22 +1,31 @@
-import { Component } from "@angular/core";
-import { RouterOutlet } from "@angular/router";
-import { invoke } from "@tauri-apps/api/core";
+import { Component, inject } from '@angular/core';
+import { Router, RouterOutlet } from '@angular/router';
+
+import { TauriService } from './core/tauri.service';
 
 @Component({
-  selector: "app-root",
+  selector: 'app-root',
   imports: [RouterOutlet],
-  templateUrl: "./app.component.html",
-  styleUrl: "./app.component.css",
+  templateUrl: './app.component.html',
+  styleUrl: './app.component.css',
 })
 export class AppComponent {
-  greetingMessage = "";
+  private readonly tauri = inject(TauriService);
+  private readonly router = inject(Router);
 
-  greet(event: SubmitEvent, name: string): void {
-    event.preventDefault();
+  constructor() {
+    void this.checkSetup();
+  }
 
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    invoke<string>("greet", { name }).then((text) => {
-      this.greetingMessage = text;
-    });
+  /** Send the user to first-run setup only when the core tools are missing. */
+  private async checkSetup(): Promise<void> {
+    try {
+      const status = await this.tauri.getSetupStatus();
+      if (!status.hasEmulator || !status.hasAdb) {
+        void this.router.navigate(['/setup']);
+      }
+    } catch {
+      void this.router.navigate(['/setup']);
+    }
   }
 }

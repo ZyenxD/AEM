@@ -1,0 +1,65 @@
+<header class="bar">
+  <h1>Devices</h1>
+  <a routerLink="/devices/new" class="primary">New device</a>
+</header>
+
+@if (store.loading() && store.devices().length === 0) {
+  <p class="muted">Loading…</p>
+}
+
+@if (store.error(); as err) {
+  <p class="error">{{ err }}</p>
+}
+
+@if (actionError(); as err) {
+  <div class="error">
+    <p>{{ err.message }}</p>
+    @if (err.message !== err.details) {
+      <details><summary>Details</summary><code>{{ err.details }}</code></details>
+    }
+  </div>
+}
+
+@if (store.isEmpty()) {
+  <section class="empty">
+    <h2>No devices yet</h2>
+    <p>Create one to run Android on your computer.</p>
+    <a routerLink="/devices/new" class="primary">Create your first device</a>
+  </section>
+}
+
+<ul class="devices">
+  @for (device of store.devices(); track device.name) {
+    <li class="device" [class.running]="device.running">
+      <span class="dot" [class.on]="device.booted" [class.pending]="device.running && !device.booted"></span>
+
+      <div class="info">
+        <strong>{{ device.displayName }}</strong>
+        <span class="meta">
+          {{ device.androidName ?? 'Android' }}
+          @if (device.tag) { · {{ device.tag }} }
+          @if (device.ramMb) { · {{ device.ramMb }} MB }
+          @if (device.width && device.height) { · {{ device.width }}×{{ device.height }} }
+        </span>
+        <span class="status">{{ statusLabel(device) }}</span>
+      </div>
+
+      <div class="actions">
+        @if (device.running) {
+          <button (click)="stop(device)" [disabled]="busy() === device.name">Stop</button>
+        } @else {
+          <button class="primary" (click)="launch(device)" [disabled]="busy() === device.name">Start</button>
+        }
+        <button class="danger" (click)="confirmingDelete.set(device.name)">Delete</button>
+      </div>
+    </li>
+
+    @if (confirmingDelete() === device.name) {
+      <li class="confirm">
+        Delete “{{ device.displayName }}” and everything on it?
+        <button class="danger" (click)="confirmDelete(device)">Delete</button>
+        <button (click)="confirmingDelete.set(null)">Cancel</button>
+      </li>
+    }
+  }
+</ul>

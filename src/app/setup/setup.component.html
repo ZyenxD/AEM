@@ -1,0 +1,34 @@
+<section class="setup">
+  <h1>Welcome to AEM</h1>
+  <p>Run Android on your computer — no Android Studio required.</p>
+
+  @if (status(); as s) {
+    <dl class="facts">
+      <dt>Your computer</dt><dd>{{ s.osLabel }} · {{ s.abiLabel }}</dd>
+      <dt>Install location</dt><dd>{{ s.sdkRoot }}</dd>
+      @if (s.freeDiskGb !== null) { <dt>Free space</dt><dd>{{ s.freeDiskGb }} GB</dd> }
+    </dl>
+  }
+
+  @switch (step()) {
+    @case ('intro') {
+      <p>AEM needs to download the Android emulator (about 400 MB) before it can create devices.</p>
+      <button class="primary" (click)="getStarted()">Get started</button>
+    }
+    @case ('licence') {
+      <app-licence-step [licences]="licences()" (accept)="acceptAll()" (back)="step.set('intro')" />
+    }
+    @case ('installing') {
+      <app-install-progress [progress]="progress()" />
+    }
+  }
+
+  @if (error(); as err) {
+    <div class="error">
+      <p>{{ err.message }}</p>
+      @if (err.message !== err.details) {
+        <details><summary>Details</summary><code>{{ err.details }}</code></details>
+      }
+    </div>
+  }
+</section>

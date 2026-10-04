@@ -1,0 +1,77 @@
+<header class="bar">
+  <h1>New device</h1>
+</header>
+
+@if (error(); as err) {
+  <div class="error">
+    <p>{{ err.message }}</p>
+    @if (err.message !== err.details) {
+      <details><summary>Details</summary><code>{{ err.details }}</code></details>
+    }
+  </div>
+}
+
+@switch (step()) {
+  @case ('form') {
+    <form (ngSubmit)="submit()">
+      <label>
+        Name
+        <input name="name" [ngModel]="name()" (ngModelChange)="name.set($event)" />
+      </label>
+
+      <fieldset>
+        <legend>Type</legend>
+        @for (profile of profiles(); track profile.id) {
+          <label class="radio">
+            <input type="radio" name="profile" [value]="profile.id"
+                   [ngModel]="profileId()" (ngModelChange)="profileId.set($event)" />
+            {{ profile.label }}
+            <span class="muted">{{ profile.width }}×{{ profile.height }}</span>
+          </label>
+        }
+      </fieldset>
+
+      <label>
+        Android version
+        @if (loadingImages()) {
+          <span class="muted">Loading available versions…</span>
+        } @else {
+          <select name="image" [ngModel]="packagePath()" (ngModelChange)="packagePath.set($event)">
+            @for (image of images(); track image.packagePath) {
+              <option [value]="image.packagePath">
+                {{ image.androidName }}@if (image.tagLabel) { · {{ image.tagLabel }} }
+                @if (image.installed) { — installed } @else { — {{ image.sizeMb }} MB download }
+              </option>
+            }
+          </select>
+        }
+      </label>
+
+      @if (selectedImage(); as image) {
+        @if (!image.installed) {
+          <p class="note">{{ image.androidName }} needs a {{ image.sizeMb }} MB download the first time.</p>
+        }
+      }
+
+      <div class="actions">
+        <button type="button" (click)="cancel()">Cancel</button>
+        <button type="submit" class="primary" [disabled]="!canSubmit()">Create</button>
+      </div>
+    </form>
+  }
+
+  @case ('licence') {
+    <app-licence-step [licences]="licences()" (accept)="acceptAll()" (back)="step.set('form')" />
+  }
+
+  @case ('installing') {
+    <section class="installing">
+      <h2>Downloading</h2>
+      <app-install-progress [progress]="progress()" />
+    </section>
+  }
+
+  @case ('creating') {
+    <p class="muted">Creating your device…</p>
+  }
+}
