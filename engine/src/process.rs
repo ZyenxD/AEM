@@ -1,5 +1,7 @@
+use std::fs::{self, File};
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -28,10 +30,22 @@ pub struct LaunchOptions {
 }
 
 /// Start an emulator. The child is detached: closing our app leaves it running.
+///
+/// The device's system image may live in a different SDK than ours (a device
+/// made by Android Studio uses Android Studio's images), so the SDK root handed
+/// to the emulator is the one that actually holds the image.
 pub fn launch(sdk: &SdkLayout, avd: &Avd, options: &LaunchOptions) -> Result<u32> {
     let emulator = sdk
         .emulator_bin()
         .ok_or_else(|| EngineError::NotFound("the emulator package is not installed yet".into()))?;
+
+    let image_sdk = sdk_for_avd(avd, sdk, &SdkLayout::discover()).ok_or_else(|| {
+        EngineError::NotFound(format!(
+            "the Android version {} uses is not installed yet ({})",
+            avd.display_name(),
+            avd.config.get("image.sysdir.1").unwrap_or("unknown image"),
+        ))
+    })?;
 
     let mut command = Command::new(&emulator);
     command.arg("-avd").arg(&avd.name);
@@ -45,20 +59,77 @@ pub fn launch(sdk: &SdkLayout, avd: &Avd, options: &LaunchOptions) -> Result<u32
         command.arg(arg);
     }
 
-    // The emulator resolves its own files relative to the SDK root.
+    // The emulator's output goes to a log in the temp folder (never into the
+    // device's own folder), so a failed start can be explained.
+    let log_path = std::env::temp_dir().join(format!("avdhub-emulator-{}.log", avd.name));
+    let (stdout, stderr) = match File::create(&log_path) {
+        Ok(file) => match file.try_clone() {
+            Ok(copy) => (Stdio::from(file), Stdio::from(copy)),
+            Err(_) => (Stdio::null(), Stdio::null()),
+        },
+        Err(_) => (Stdio::null(), Stdio::null()),
+    };
+
+    // The emulator resolves the device's image relative to the SDK root.
     command
-        .env("ANDROID_SDK_ROOT", &sdk.root)
-        .env("ANDROID_HOME", &sdk.root)
+        .env("ANDROID_SDK_ROOT", &image_sdk.root)
+        .env("ANDROID_HOME", &image_sdk.root)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stdout(stdout)
+        .stderr(stderr);
 
     hide_console(&mut command);
 
-    let child = command
+    let mut child = command
         .spawn()
         .map_err(|e| EngineError::Process(format!("could not start the emulator: {e}")))?;
+
+    // A broken setup makes the emulator quit within a second or two. Wait
+    // briefly so that failure is reported instead of a silent no-op.
+    for _ in 0..EARLY_EXIT_POLLS {
+        std::thread::sleep(Duration::from_millis(250));
+        if let Ok(Some(status)) = child.try_wait() {
+            let reason = fs::read_to_string(&log_path)
+                .ok()
+                .and_then(|log| first_fatal_line(&log))
+                .unwrap_or_else(|| format!("exit status {status}"));
+            return Err(EngineError::Process(format!(
+                "the emulator closed right after starting: {reason}"
+            )));
+        }
+    }
     Ok(child.id())
+}
+
+/// 12 x 250 ms: long enough to catch a fatal start-up error.
+const EARLY_EXIT_POLLS: u32 = 12;
+
+/// The SDK holding this device's system image: `preferred` when it has it,
+/// otherwise the first of `candidates` that does. `None` if none has it.
+pub fn sdk_for_avd(
+    avd: &Avd,
+    preferred: &SdkLayout,
+    candidates: &[SdkLayout],
+) -> Option<SdkLayout> {
+    let Some(sysdir) = avd.config.get("image.sysdir.1") else {
+        // Nothing to check against: keep the old behaviour.
+        return Some(preferred.clone());
+    };
+    std::iter::once(preferred)
+        .chain(candidates)
+        .find(|s| s.root.join(sysdir).is_dir())
+        .cloned()
+}
+
+fn first_fatal_line(log: &str) -> Option<String> {
+    log.lines()
+        .find(|l| l.contains("FATAL") || l.contains("ERROR"))
+        .map(|l| {
+            l.split_once('|')
+                .map_or(l, |(_, rest)| rest)
+                .trim()
+                .to_string()
+        })
 }
 
 /// Emulators adb can currently see.
@@ -155,3 +226,69 @@ pub(crate) fn hide_console(command: &mut Command) {
 
 #[cfg(not(windows))]
 pub(crate) fn hide_console(_command: &mut Command) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::avd::config_ini::IniFile;
+
+    fn avd_with_sysdir(sysdir: &str) -> Avd {
+        let mut config = IniFile::default();
+        config.set("image.sysdir.1", sysdir);
+        Avd {
+            name: "Test".into(),
+            dir: "/tmp/Test.avd".into(),
+            config,
+        }
+    }
+
+    #[test]
+    fn picks_the_sdk_that_holds_the_image() {
+        let base = std::env::temp_dir().join("avdhub-sdk-pick");
+        fs::remove_dir_all(&base).ok();
+        let ours = SdkLayout::new(base.join("ours"), true);
+        let studio = SdkLayout::new(base.join("studio"), false);
+        fs::create_dir_all(
+            ours.root
+                .join("system-images/android-36/google_apis_playstore/arm64-v8a"),
+        )
+        .unwrap();
+        fs::create_dir_all(
+            studio
+                .root
+                .join("system-images/android-35/google_apis_playstore/arm64-v8a"),
+        )
+        .unwrap();
+        let candidates = [ours.clone(), studio.clone()];
+
+        // Only Android Studio has API 35: use its SDK.
+        let avd = avd_with_sysdir("system-images/android-35/google_apis_playstore/arm64-v8a/");
+        assert_eq!(
+            sdk_for_avd(&avd, &ours, &candidates).unwrap().root,
+            studio.root
+        );
+
+        // Ours has API 36: keep ours.
+        let avd = avd_with_sysdir("system-images/android-36/google_apis_playstore/arm64-v8a/");
+        assert_eq!(
+            sdk_for_avd(&avd, &ours, &candidates).unwrap().root,
+            ours.root
+        );
+
+        // Nobody has API 34.
+        let avd = avd_with_sysdir("system-images/android-34/google_apis/arm64-v8a/");
+        assert!(sdk_for_avd(&avd, &ours, &candidates).is_none());
+
+        fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn reads_the_reason_from_the_emulator_log() {
+        let log = "INFO | Android emulator version 37\nFATAL        | Broken AVD system path. Check your ANDROID_SDK_ROOT value [/x]!\n";
+        assert_eq!(
+            first_fatal_line(log).unwrap(),
+            "Broken AVD system path. Check your ANDROID_SDK_ROOT value [/x]!"
+        );
+        assert!(first_fatal_line("INFO | all good").is_none());
+    }
+}

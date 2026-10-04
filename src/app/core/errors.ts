@@ -38,6 +38,16 @@ const RULES: Array<{ match: RegExp; message: string; suggestion: string | null }
     suggestion: 'Choose a different name.',
   },
   {
+    match: /android version .* is not installed yet/i,
+    message: "This device's Android version isn't downloaded on this computer.",
+    suggestion: 'Create a new device with an installed Android version, or install it with Android Studio.',
+  },
+  {
+    match: /closed right after starting/i,
+    message: 'The emulator closed right after starting.',
+    suggestion: 'Open Technical details for the reason.',
+  },
+  {
     match: /not installed yet|emulator package/i,
     message: 'The Android emulator still needs to be installed.',
     suggestion: 'Finish setup first.',
