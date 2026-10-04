@@ -328,6 +328,37 @@ mod tests {
     }
 
     #[test]
+    fn paths_with_spaces_are_written_unquoted_with_forward_slashes() {
+        // A Windows user named "John Smith" gets a home folder with a space in it.
+        let home = std::env::temp_dir().join("avdhub spaced home/.android/avd");
+        fs::remove_dir_all(&home).ok();
+        fs::create_dir_all(&home).unwrap();
+        let sdk = SdkLayout::new("/tmp/sdk", true);
+
+        let avd = create(
+            &home,
+            &sdk,
+            "Spaced Device",
+            &profiles::default_profile(),
+            &fake_image(),
+        )
+        .unwrap();
+
+        let pointer = config_ini::IniFile::read(&home.join("Spaced_Device.ini")).unwrap();
+        let path = pointer.get("path").unwrap();
+        assert!(path.contains("avdhub spaced home"));
+        assert!(!path.contains('\\') && !path.contains('"'));
+        assert_eq!(
+            avd.config.get("image.sysdir.1"),
+            Some("system-images/android-35/google_apis_playstore/arm64-v8a/")
+        );
+        // The pointer must lead back to the same device.
+        assert_eq!(find(&home, "Spaced_Device").unwrap().dir, avd.dir);
+
+        fs::remove_dir_all(std::env::temp_dir().join("avdhub spaced home")).ok();
+    }
+
+    #[test]
     fn names_are_sanitised() {
         assert_eq!(sanitize_name("My Pixel 8!"), "My_Pixel_8_");
         assert_eq!(sanitize_name("   "), "Device");

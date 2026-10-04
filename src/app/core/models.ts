@@ -51,6 +51,7 @@ export interface SetupStatus {
   osLabel: string;
   freeDiskGb: number | null;
   ready: boolean;
+  platformWarning: string | null;
 }
 
 export type InstallStage = 'downloading' | 'verifying' | 'unpacking' | 'finished';
@@ -68,5 +69,32 @@ export interface InstallProgress {
 
 export interface InstallFinished {
   ok: boolean;
+  cancelled: boolean;
   error: string | null;
+}
+
+export interface SpaceCheck {
+  neededMb: number;
+  availableMb: number | null;
+  enough: boolean;
+}
+
+// Mirrors engine/src/accel.rs (serialised as camelCase there).
+export type AccelStatus =
+  | 'ready' | 'hypervisorDisabled' | 'virtualizationDisabled'
+  | 'emulatorMissing' | 'unknown';
+
+export interface FixStep {
+  title: string;
+  detail: string;
+  command: string | null;
+  requiresAdmin: boolean;
+}
+
+export interface AccelReport {
+  status: AccelStatus;
+  summary: string;
+  rawMessage: string;
+  fixSteps: FixStep[];
+  requiresReboot: boolean;
 }

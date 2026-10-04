@@ -2,6 +2,8 @@ use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
@@ -22,11 +24,45 @@ pub enum Progress {
     Finished { install_dir: PathBuf },
 }
 
+/// Shared flag the UI can set to stop an install in progress.
+#[derive(Debug, Clone, Default)]
+pub struct CancelFlag(Arc<AtomicBool>);
+
+impl CancelFlag {
+    pub fn new() -> CancelFlag {
+        CancelFlag(Arc::new(AtomicBool::new(false)))
+    }
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+    pub fn reset(&self) {
+        self.0.store(false, Ordering::Relaxed);
+    }
+}
+
+/// Bytes needed to install these packages: the download plus the unpacked copy,
+/// with headroom.
+pub fn space_needed(packages: &[&RemotePackage], host: &HostInfo) -> u64 {
+    let download: u64 = packages
+        .iter()
+        .filter_map(|p| p.archive_for(host))
+        .map(|a| a.size_bytes)
+        .sum();
+    // Unpacked system images run roughly 1.5x their archive, and we hold both
+    // at once. Add 500 MB of headroom.
+    download + (download * 3 / 2) + 500 * 1_048_576
+}
+
 /// Download, verify and unpack one package into the SDK.
+/// Returns `EngineError::Cancelled` (leaving no partial file) if `cancel` is set.
 pub fn install_package(
     pkg: &RemotePackage,
     host: &HostInfo,
     sdk: &SdkLayout,
+    cancel: &CancelFlag,
     mut on_progress: impl FnMut(Progress),
 ) -> Result<PathBuf> {
     let archive = pkg.archive_for(host).ok_or_else(|| {
@@ -51,6 +87,7 @@ pub fn install_package(
         &archive.url,
         &zip_path,
         archive.size_bytes,
+        cancel,
         &mut on_progress,
     )?;
 
@@ -85,6 +122,7 @@ fn download_file(
     url: &str,
     dest: &Path,
     expected_size: u64,
+    cancel: &CancelFlag,
     on_progress: &mut impl FnMut(Progress),
 ) -> Result<()> {
     let response = ureq::get(url).call().map_err(|e| EngineError::Network {
@@ -105,6 +143,12 @@ fn download_file(
     let mut last_reported: u64 = 0;
 
     loop {
+        if cancel.is_cancelled() {
+            // Close the handle first: Windows cannot delete an open file.
+            drop(file);
+            fs::remove_file(dest).ok();
+            return Err(EngineError::Cancelled);
+        }
         let read = reader.read(&mut buffer).map_err(|e| EngineError::Network {
             url: url.to_string(),
             message: e.to_string(),
@@ -281,5 +325,109 @@ mod tests {
             "a9993e364706816aba3e25717850c26c9cd0d89d"
         );
         fs::remove_file(&tmp).ok();
+    }
+
+    /// Serve `body` once over plain HTTP on a random local port; returns the URL.
+    fn serve_once(body: Vec<u8>) -> String {
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut request = [0u8; 1024];
+                let _ = stream.read(&mut request);
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(header.as_bytes());
+                let _ = stream.write_all(&body);
+            }
+        });
+        format!("http://127.0.0.1:{port}/file.zip")
+    }
+
+    #[test]
+    fn download_completes_and_reports_progress() {
+        let tmp = std::env::temp_dir().join("avdhub-dl-ok");
+        fs::remove_dir_all(&tmp).ok();
+        fs::create_dir_all(&tmp).unwrap();
+        let dest = tmp.join("file.zip");
+
+        let url = serve_once(vec![7u8; 3 * 1_048_576]);
+        let mut last = 0;
+        download_file(&url, &dest, 0, &CancelFlag::new(), &mut |p| {
+            if let Progress::Downloading { done_bytes, .. } = p {
+                last = done_bytes;
+            }
+        })
+        .unwrap();
+
+        assert_eq!(last, 3 * 1_048_576);
+        assert_eq!(fs::metadata(&dest).unwrap().len(), 3 * 1_048_576);
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn cancelled_download_leaves_no_partial_file() {
+        let tmp = std::env::temp_dir().join("avdhub-dl-cancel");
+        fs::remove_dir_all(&tmp).ok();
+        fs::create_dir_all(&tmp).unwrap();
+        let dest = tmp.join("file.zip");
+
+        let url = serve_once(vec![7u8; 8 * 1_048_576]);
+        let cancel = CancelFlag::new();
+        let trigger = cancel.clone();
+        // Cancel as soon as the first megabyte has arrived.
+        let result = download_file(&url, &dest, 0, &cancel, &mut |p| {
+            if matches!(p, Progress::Downloading { .. }) {
+                trigger.cancel();
+            }
+        });
+
+        assert!(matches!(result, Err(EngineError::Cancelled)));
+        assert!(!dest.exists());
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn cancel_flag_resets() {
+        let flag = CancelFlag::new();
+        let shared = flag.clone();
+        shared.cancel();
+        assert!(flag.is_cancelled());
+        flag.reset();
+        assert!(!shared.is_cancelled());
+    }
+
+    #[test]
+    fn space_needed_adds_unpacked_copy_and_headroom() {
+        use crate::host::{Abi, HostArch, HostOs};
+        let host = HostInfo {
+            os: HostOs::MacOs,
+            arch: HostArch::Aarch64,
+            preferred_abi: Abi::Arm64V8a,
+            total_ram_bytes: 0,
+        };
+        let pkg = RemotePackage {
+            path: "system-images;android-35;google_apis;arm64-v8a".into(),
+            display_name: "img".into(),
+            revision: (1, 0, 0),
+            api_level: Some(35),
+            abi: Some("arm64-v8a".into()),
+            tag_id: None,
+            tag_display: None,
+            license_id: None,
+            archives: vec![crate::repository::Archive {
+                url: "x".into(),
+                size_bytes: 1000 * 1_048_576,
+                sha1: String::new(),
+                host_os: None,
+                host_arch: None,
+            }],
+        };
+        // 1000 MB download + 1500 MB unpacked + 500 MB headroom
+        assert_eq!(space_needed(&[&pkg], &host), 3000 * 1_048_576);
+        assert_eq!(space_needed(&[], &host), 500 * 1_048_576);
     }
 }

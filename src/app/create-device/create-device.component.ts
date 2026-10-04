@@ -3,11 +3,12 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 
 import { DevicesStore } from '../core/devices.store';
-import { friendlyError, type FriendlyError } from '../core/errors';
+import { friendly, type FriendlyError } from '../core/errors';
 import type {
   DeviceProfile, InstallFinished, InstallProgress, License, SystemImage,
 } from '../core/models';
 import { TauriService } from '../core/tauri.service';
+import { ErrorComponent } from '../shared/error.component';
 import { InstallProgressComponent } from '../shared/install-progress.component';
 import { LicenceStepComponent } from '../shared/licence-step.component';
 
@@ -16,7 +17,7 @@ type Step = 'form' | 'licence' | 'installing' | 'creating';
 
 @Component({
   selector: 'app-create-device',
-  imports: [FormsModule, InstallProgressComponent, LicenceStepComponent],
+  imports: [FormsModule, ErrorComponent, InstallProgressComponent, LicenceStepComponent],
   templateUrl: './create-device.component.html',
   styleUrl: './create-device.component.css',
 })
@@ -27,6 +28,7 @@ export class CreateDeviceComponent implements OnInit {
 
   readonly step = signal<Step>('form');
   readonly error = signal<FriendlyError | null>(null);
+  readonly notice = signal<string | null>(null);
 
   readonly profiles = signal<DeviceProfile[]>([]);
   readonly images = signal<SystemImage[]>([]);
@@ -60,11 +62,14 @@ export class CreateDeviceComponent implements OnInit {
       (h) => this.tauri.onInstallFinished(h),
       (r: InstallFinished) => {
         if (this.step() !== 'installing') return;
-        if (r.ok) {
+        if (r.cancelled) {
+          this.notice.set('Download stopped. Nothing was left behind.');
+          this.step.set('form');
+        } else if (r.ok) {
           // Creation is the continuation of the install, which reports completion by event.
           void this.finishCreate();
         } else {
-          this.error.set(friendlyError(r.error ?? 'The download failed.'));
+          this.error.set(friendly(r.error ?? 'The download failed.'));
           this.step.set('form');
         }
       },
@@ -82,7 +87,7 @@ export class CreateDeviceComponent implements OnInit {
         images.find((i) => i.installed) ?? images.find((i) => i.recommended) ?? images[0];
       if (preferred) this.packagePath.set(preferred.packagePath);
     } catch (e) {
-      this.error.set(friendlyError(e));
+      this.error.set(friendly(e));
     } finally {
       this.loadingImages.set(false);
     }
@@ -92,12 +97,24 @@ export class CreateDeviceComponent implements OnInit {
     const image = this.packagePath();
     if (!image) return;
     this.error.set(null);
+    this.notice.set(null);
 
     try {
       this.pendingPackages = await this.tauri.packagesNeededFor(image);
 
       if (this.pendingPackages.length === 0) {
         await this.finishCreate();
+        return;
+      }
+
+      // Warn before a long download that will not fit, not after it.
+      const space = await this.tauri.checkSpace(this.pendingPackages);
+      if (!space.enough) {
+        this.error.set(
+          friendly(
+            `You need about ${space.neededMb} MB free, but only ${space.availableMb} MB is available.`,
+          ),
+        );
         return;
       }
 
@@ -110,7 +127,7 @@ export class CreateDeviceComponent implements OnInit {
 
       await this.beginInstall();
     } catch (e) {
-      this.error.set(friendlyError(e));
+      this.error.set(friendly(e));
     }
   }
 
@@ -122,7 +139,7 @@ export class CreateDeviceComponent implements OnInit {
       }
       await this.beginInstall();
     } catch (e) {
-      this.error.set(friendlyError(e));
+      this.error.set(friendly(e));
       this.step.set('form');
     }
   }
@@ -140,8 +157,17 @@ export class CreateDeviceComponent implements OnInit {
       await this.store.refresh();
       void this.router.navigate(['/devices']);
     } catch (e) {
-      this.error.set(friendlyError(e));
+      this.error.set(friendly(e));
       this.step.set('form');
+    }
+  }
+
+  async cancelInstall(): Promise<void> {
+    try {
+      await this.tauri.cancelInstall();
+      // The 'install-finished' event arrives with cancelled: true.
+    } catch (e) {
+      this.error.set(friendly(e));
     }
   }
 

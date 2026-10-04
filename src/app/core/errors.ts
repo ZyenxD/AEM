@@ -1,21 +1,65 @@
-/** A friendlier sentence for a raw engine error, keeping the original for a "details" toggle. */
+/** A human sentence for a raw engine error. The original is kept for "Technical details". */
 export interface FriendlyError {
   message: string;
-  details: string;
+  suggestion: string | null;
+  technical: string;
 }
 
-const KNOWN: Array<[RegExp, string]> = [
-  [/network problem/i, 'Could not reach Google’s download servers. Check your internet connection and try again.'],
-  [/permission denied|os error 13/i, 'The app does not have permission to write to the install folder.'],
-  [/no space left|os error 28/i, 'There is not enough free disk space for this download.'],
-  [/corrupted/i, 'The download was damaged on the way. Please try again.'],
-  [/already exists/i, 'A device with that name already exists. Pick another name.'],
-  [/not installed yet/i, 'That Android version has not been downloaded yet.'],
-  [/licence must be accepted/i, 'Google’s licence has to be accepted before downloading.'],
+// Add rules only for failures actually seen; a hypothetical rule tends to match the wrong thing.
+const RULES: Array<{ match: RegExp; message: string; suggestion: string | null }> = [
+  {
+    match: /no space left|not enough space|os error 28|os error 112/i,
+    message: 'Your disk is full.',
+    suggestion: 'Free up a few gigabytes and try again.',
+  },
+  {
+    match: /permission denied|access is denied|os error 13|os error 5\b/i,
+    message: "AEM doesn't have permission to write there.",
+    suggestion: 'If you use antivirus software, it may be blocking the download.',
+  },
+  {
+    match: /network problem|dns|timed out|connection refused/i,
+    message: "Couldn't reach Google's servers.",
+    suggestion: 'Check your internet connection and try again.',
+  },
+  {
+    match: /corrupted|checksum/i,
+    message: 'The download was damaged in transit.',
+    suggestion: 'This usually fixes itself — try again.',
+  },
+  {
+    match: /licence must be accepted|license must be accepted/i,
+    message: "Google's licence needs to be accepted first.",
+    suggestion: null,
+  },
+  {
+    match: /already exists/i,
+    message: 'A device with that name already exists.',
+    suggestion: 'Choose a different name.',
+  },
+  {
+    match: /not installed yet|emulator package/i,
+    message: 'The Android emulator still needs to be installed.',
+    suggestion: 'Finish setup first.',
+  },
+  {
+    match: /is not running/i,
+    message: 'That device has already stopped.',
+    suggestion: null,
+  },
+  {
+    match: /you need about .* mb free/i,
+    message: 'There is not enough free disk space for this download.',
+    suggestion: 'Free up some space and try again.',
+  },
 ];
 
-export function friendlyError(raw: unknown): FriendlyError {
-  const details = String(raw);
-  const match = KNOWN.find(([pattern]) => pattern.test(details));
-  return { message: match ? match[1] : details, details };
+export function friendly(error: unknown): FriendlyError {
+  const technical = String(error);
+  const rule = RULES.find((r) => r.match.test(technical));
+  return {
+    message: rule?.message ?? 'Something went wrong.',
+    suggestion: rule?.suggestion ?? null,
+    technical,
+  };
 }

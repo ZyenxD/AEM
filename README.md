@@ -9,8 +9,39 @@ Create and run Android emulators without installing Android Studio.
 
 ## Status
 
-In development. Phase 2 (engine) complete: catalog, downloads, device management and
-launching all work from the command line. GUI in progress.
+In development. The GUI works on macOS; Windows support is being tested (Phase 4).
+
+## Supported platforms
+
+| Platform | Status |
+|---|---|
+| macOS (Apple Silicon) | Tested |
+| macOS (Intel) | Builds; not yet tested |
+| Windows 10/11 (x86-64) | Builds; testing in progress |
+| Windows on ARM | Not tested — reports welcome |
+| Linux | Builds; not a release target yet |
+
+### Windows: hardware acceleration
+
+Android emulators need hardware virtualisation. On Windows this means the
+**Windows Hypervisor Platform** feature, which is off by default. AEM detects
+this and walks you through enabling it — you will need to restart once.
+
+WHPX works alongside Hyper-V, WSL2 and Docker Desktop.
+
+### Installing
+
+The builds are not yet code-signed, so:
+
+- **macOS** will say the app is from an unidentified developer. Right-click the
+  app and choose Open, then confirm.
+- **Windows** SmartScreen will show a warning. Choose More info → Run anyway.
+
+### Logs
+
+The app writes `avdhub.log` to its log folder (on macOS
+`~/Library/Logs/com.neycasilla.aem`, on Windows
+`%LOCALAPPDATA%\com.neycasilla.aem\logs`). Attach it to bug reports.
 
 ## How it works
 

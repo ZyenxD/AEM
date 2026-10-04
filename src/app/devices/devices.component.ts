@@ -2,13 +2,15 @@ import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { DevicesStore } from '../core/devices.store';
-import { friendlyError, type FriendlyError } from '../core/errors';
-import type { Device } from '../core/models';
+import { friendly, type FriendlyError } from '../core/errors';
+import type { AccelReport, Device } from '../core/models';
 import { TauriService } from '../core/tauri.service';
+import { AccelPanelComponent } from '../shared/accel-panel.component';
+import { ErrorComponent } from '../shared/error.component';
 
 @Component({
   selector: 'app-devices',
-  imports: [RouterLink],
+  imports: [RouterLink, AccelPanelComponent, ErrorComponent],
   templateUrl: './devices.component.html',
   styleUrl: './devices.component.css',
 })
@@ -20,6 +22,9 @@ export class DevicesComponent implements OnInit, OnDestroy {
   readonly busy = signal<string | null>(null);
   readonly actionError = signal<FriendlyError | null>(null);
   readonly confirmingDelete = signal<string | null>(null);
+  /** Set when acceleration is missing; the panel replaces a launch into a frozen window. */
+  readonly accelReport = signal<AccelReport | null>(null);
+  private accelPendingDevice: Device | null = null;
 
   // Stop polling adb while the window is hidden.
   private readonly onVisibilityChange = (): void => {
@@ -42,15 +47,23 @@ export class DevicesComponent implements OnInit, OnDestroy {
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
   }
 
-  async launch(device: Device): Promise<void> {
+  async launch(device: Device, skipAccelCheck = false): Promise<void> {
     this.busy.set(device.name);
     this.actionError.set(null);
     try {
+      if (!skipAccelCheck) {
+        const accel = await this.tauri.checkAcceleration();
+        if (accel.status !== 'ready' && accel.status !== 'emulatorMissing') {
+          this.accelPendingDevice = device;
+          this.accelReport.set(accel);
+          return;
+        }
+      }
       await this.tauri.launchDevice(device.name);
       // The emulator takes a moment to register with adb.
       setTimeout(() => void this.store.refresh(), 2000);
     } catch (e) {
-      this.actionError.set(friendlyError(e));
+      this.actionError.set(friendly(e));
     } finally {
       this.busy.set(null);
     }
@@ -63,7 +76,7 @@ export class DevicesComponent implements OnInit, OnDestroy {
       await this.tauri.stopDevice(device.name);
       setTimeout(() => void this.store.refresh(), 1500);
     } catch (e) {
-      this.actionError.set(friendlyError(e));
+      this.actionError.set(friendly(e));
     } finally {
       this.busy.set(null);
     }
@@ -75,8 +88,34 @@ export class DevicesComponent implements OnInit, OnDestroy {
       this.confirmingDelete.set(null);
       await this.store.refresh();
     } catch (e) {
-      this.actionError.set(friendlyError(e));
+      this.actionError.set(friendly(e));
     }
+  }
+
+  async recheckAccel(): Promise<void> {
+    try {
+      const accel = await this.tauri.checkAcceleration();
+      if (accel.status === 'ready' && this.accelPendingDevice) {
+        const device = this.accelPendingDevice;
+        this.closeAccel();
+        await this.launch(device, true);
+      } else {
+        this.accelReport.set(accel);
+      }
+    } catch (e) {
+      this.actionError.set(friendly(e));
+    }
+  }
+
+  startAnyway(): void {
+    const device = this.accelPendingDevice;
+    this.closeAccel();
+    if (device) void this.launch(device, true);
+  }
+
+  closeAccel(): void {
+    this.accelReport.set(null);
+    this.accelPendingDevice = null;
   }
 
   statusLabel(device: Device): string {

@@ -3,8 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 import type {
-  Device, DeviceProfile, InstallFinished, InstallProgress,
-  License, SetupStatus, SystemImage,
+  AccelReport, Device, DeviceProfile, InstallFinished, InstallProgress,
+  License, SetupStatus, SpaceCheck, SystemImage,
 } from './models';
 
 /** The only file in the app allowed to import from `@tauri-apps/api`. */
@@ -84,6 +84,25 @@ export class TauriService {
 
   startInstall(packagePaths: string[]): Promise<void> {
     return invoke<void>('start_install', { packagePaths });
+  }
+
+  /** The `install-finished` event then arrives with `cancelled: true`. */
+  cancelInstall(): Promise<void> {
+    return invoke<void>('cancel_install');
+  }
+
+  checkSpace(packagePaths: string[]): Promise<SpaceCheck> {
+    return invoke<SpaceCheck>('check_space', { packagePaths });
+  }
+
+  // ---- acceleration ----
+
+  checkAcceleration(): Promise<AccelReport> {
+    return invoke<AccelReport>('check_acceleration');
+  }
+
+  openWindowsFeatures(): Promise<void> {
+    return invoke<void>('open_windows_features');
   }
 
   // Tauri events arrive outside Angular's zone, so re-enter it or the view never updates.

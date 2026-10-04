@@ -128,6 +128,8 @@ pub struct SetupStatusDto {
     pub os_label: String,
     pub free_disk_gb: Option<u64>,
     pub ready: bool,
+    /// Shown on the setup screen for platforms we have not tested.
+    pub platform_warning: Option<String>,
 }
 
 impl SetupStatusDto {
@@ -145,8 +147,18 @@ impl SetupStatusDto {
             os_label: format!("{:?}", host.os),
             free_disk_gb: engine::host::free_disk_bytes(&sdk.root).map(|b| b / 1_073_741_824),
             ready: has_emulator && has_adb && images > 0,
+            platform_warning: platform_warning(host),
         }
     }
+}
+
+/// Windows on ARM is untested: say so rather than let it fail confusingly.
+pub fn platform_warning(host: &HostInfo) -> Option<String> {
+    use engine::host::{HostArch, HostOs};
+    (host.os == HostOs::Windows && host.arch == HostArch::Aarch64).then(|| {
+        "Windows on ARM has not been tested yet. Things may not work; please report what happens."
+            .to_string()
+    })
 }
 
 /// Build the image list the "create device" screen shows.
@@ -183,5 +195,38 @@ pub struct InstallProgressDto {
 #[serde(rename_all = "camelCase")]
 pub struct InstallFinishedDto {
     pub ok: bool,
+    /// true when the user pressed Cancel; not an error.
+    pub cancelled: bool,
     pub error: Option<String>,
+}
+
+/// Result of the disk-space preflight before a download.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpaceCheckDto {
+    pub needed_mb: u64,
+    pub available_mb: Option<u64>,
+    pub enough: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use engine::host::{Abi, HostArch, HostOs};
+
+    fn host(os: HostOs, arch: HostArch) -> HostInfo {
+        HostInfo {
+            os,
+            arch,
+            preferred_abi: Abi::Arm64V8a,
+            total_ram_bytes: 0,
+        }
+    }
+
+    #[test]
+    fn warns_only_on_windows_arm() {
+        assert!(platform_warning(&host(HostOs::Windows, HostArch::Aarch64)).is_some());
+        assert!(platform_warning(&host(HostOs::Windows, HostArch::X64)).is_none());
+        assert!(platform_warning(&host(HostOs::MacOs, HostArch::Aarch64)).is_none());
+    }
 }

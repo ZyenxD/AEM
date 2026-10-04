@@ -8,6 +8,7 @@
       <dt>Install location</dt><dd>{{ s.sdkRoot }}</dd>
       @if (s.freeDiskGb !== null) { <dt>Free space</dt><dd>{{ s.freeDiskGb }} GB</dd> }
     </dl>
+    @if (s.platformWarning) { <p class="note">{{ s.platformWarning }}</p> }
   }
 
   @switch (step()) {
@@ -19,16 +20,16 @@
       <app-licence-step [licences]="licences()" (accept)="acceptAll()" (back)="step.set('intro')" />
     }
     @case ('installing') {
-      <app-install-progress [progress]="progress()" />
+      <app-install-progress [progress]="progress()" (cancel)="cancelInstall()" />
+    }
+    @case ('accel') {
+      @if (accelReport(); as report) {
+        <app-accel-panel [report]="report" [allowStartAnyway]="false"
+                         (recheck)="recheckAccel()" (dismiss)="continueToDevices()" />
+      }
     }
   }
 
-  @if (error(); as err) {
-    <div class="error">
-      <p>{{ err.message }}</p>
-      @if (err.message !== err.details) {
-        <details><summary>Details</summary><code>{{ err.details }}</code></details>
-      }
-    </div>
-  }
+  @if (notice(); as n) { <p class="muted">{{ n }}</p> }
+  <app-error [error]="error()" />
 </section>

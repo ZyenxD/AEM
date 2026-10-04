@@ -1,17 +1,21 @@
 import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 
-import { friendlyError, type FriendlyError } from '../core/errors';
-import type { InstallFinished, InstallProgress, License, SetupStatus } from '../core/models';
+import { friendly, type FriendlyError } from '../core/errors';
+import type {
+  AccelReport, InstallFinished, InstallProgress, License, SetupStatus,
+} from '../core/models';
 import { TauriService } from '../core/tauri.service';
+import { AccelPanelComponent } from '../shared/accel-panel.component';
+import { ErrorComponent } from '../shared/error.component';
 import { InstallProgressComponent } from '../shared/install-progress.component';
 import { LicenceStepComponent } from '../shared/licence-step.component';
 
-type Step = 'intro' | 'licence' | 'installing';
+type Step = 'intro' | 'licence' | 'installing' | 'accel';
 
 @Component({
   selector: 'app-setup',
-  imports: [InstallProgressComponent, LicenceStepComponent],
+  imports: [AccelPanelComponent, ErrorComponent, InstallProgressComponent, LicenceStepComponent],
   templateUrl: './setup.component.html',
   styleUrl: './setup.component.css',
 })
@@ -24,6 +28,8 @@ export class SetupComponent implements OnInit {
   readonly licences = signal<License[]>([]);
   readonly progress = signal<InstallProgress | null>(null);
   readonly error = signal<FriendlyError | null>(null);
+  readonly notice = signal<string | null>(null);
+  readonly accelReport = signal<AccelReport | null>(null);
 
   private needed: string[] = [];
 
@@ -38,10 +44,13 @@ export class SetupComponent implements OnInit {
       (h) => this.tauri.onInstallFinished(h),
       (r: InstallFinished) => {
         if (this.step() !== 'installing') return;
-        if (r.ok) {
-          void this.router.navigate(['/devices']);
+        if (r.cancelled) {
+          this.notice.set('Download stopped. You can start again whenever you like.');
+          this.step.set('intro');
+        } else if (r.ok) {
+          void this.afterInstall();
         } else {
-          this.error.set(friendlyError(r.error ?? 'Setup failed.'));
+          this.error.set(friendly(r.error ?? 'Setup failed.'));
           this.step.set('intro');
         }
       },
@@ -53,17 +62,27 @@ export class SetupComponent implements OnInit {
     try {
       this.status.set(await this.tauri.getSetupStatus());
     } catch (e) {
-      this.error.set(friendlyError(e));
+      this.error.set(friendly(e));
     }
   }
 
   /** Work out what to download and show the licence before anything is accepted. */
   async getStarted(): Promise<void> {
     this.error.set(null);
+    this.notice.set(null);
     try {
       this.needed = await this.tauri.corePackagesNeeded();
       if (this.needed.length === 0) {
         void this.router.navigate(['/devices']);
+        return;
+      }
+      const space = await this.tauri.checkSpace(this.needed);
+      if (!space.enough) {
+        this.error.set(
+          friendly(
+            `You need about ${space.neededMb} MB free, but only ${space.availableMb} MB is available.`,
+          ),
+        );
         return;
       }
       const licences = await this.tauri.pendingLicenses(this.needed);
@@ -74,7 +93,47 @@ export class SetupComponent implements OnInit {
       }
       await this.beginInstall();
     } catch (e) {
-      this.error.set(friendlyError(e));
+      this.error.set(friendly(e));
+    }
+  }
+
+  /** Warn about missing acceleration now, so a restart happens before devices are made. */
+  private async afterInstall(): Promise<void> {
+    try {
+      const accel = await this.tauri.checkAcceleration();
+      if (accel.status !== 'ready' && accel.status !== 'emulatorMissing') {
+        this.accelReport.set(accel);
+        this.step.set('accel');
+        return;
+      }
+    } catch {
+      /* the check is advisory; carry on */
+    }
+    void this.router.navigate(['/devices']);
+  }
+
+  async recheckAccel(): Promise<void> {
+    try {
+      const accel = await this.tauri.checkAcceleration();
+      if (accel.status === 'ready') {
+        void this.router.navigate(['/devices']);
+      } else {
+        this.accelReport.set(accel);
+      }
+    } catch (e) {
+      this.error.set(friendly(e));
+    }
+  }
+
+  continueToDevices(): void {
+    void this.router.navigate(['/devices']);
+  }
+
+  async cancelInstall(): Promise<void> {
+    try {
+      await this.tauri.cancelInstall();
+    } catch (e) {
+      this.error.set(friendly(e));
     }
   }
 
@@ -86,7 +145,7 @@ export class SetupComponent implements OnInit {
       }
       await this.beginInstall();
     } catch (e) {
-      this.error.set(friendlyError(e));
+      this.error.set(friendly(e));
       this.step.set('intro');
     }
   }

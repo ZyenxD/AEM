@@ -34,6 +34,9 @@ pub enum EngineError {
 
     #[error("emulator problem: {0}")]
     Process(String),
+
+    #[error("cancelled")]
+    Cancelled,
 }
 
 pub type Result<T> = std::result::Result<T, EngineError>;

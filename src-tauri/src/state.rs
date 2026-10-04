@@ -1,5 +1,6 @@
 use std::sync::Mutex;
 
+use engine::downloader::CancelFlag;
 use engine::host::HostInfo;
 use engine::repository::Catalog;
 use engine::sdk_layout::SdkLayout;
@@ -8,6 +9,8 @@ pub struct AppState {
     pub host: HostInfo,
     pub sdk: Mutex<SdkLayout>,
     pub catalog: Mutex<Option<Catalog>>,
+    /// Shared with the running install; `cancel_install` sets it.
+    pub cancel: CancelFlag,
 }
 
 impl AppState {
@@ -22,10 +25,25 @@ impl AppState {
             .unwrap_or_else(SdkLayout::create_managed)
             .map_err(|e| e.to_string())?;
 
+        log::info!(
+            "host: {:?} {:?}, abi {:?}, sdk root {} (managed by us: {}), emulator {:?}",
+            host.os,
+            host.arch,
+            host.preferred_abi,
+            sdk.root.display(),
+            sdk.managed_by_us,
+            sdk.emulator_bin(),
+        );
+
+        // Pay the adb server's startup cost now, off the startup path.
+        let warm_sdk = sdk.clone();
+        std::thread::spawn(move || engine::process::warm_up(&warm_sdk));
+
         Ok(AppState {
             host,
             sdk: Mutex::new(sdk),
             catalog: Mutex::new(None),
+            cancel: CancelFlag::new(),
         })
     }
 

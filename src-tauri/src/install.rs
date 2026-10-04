@@ -1,6 +1,6 @@
 use tauri::{AppHandle, Emitter};
 
-use engine::downloader::Progress;
+use engine::downloader::{CancelFlag, Progress};
 use engine::host::HostInfo;
 use engine::repository::Catalog;
 use engine::sdk_layout::SdkLayout;
@@ -17,9 +17,11 @@ pub fn run_install(
     host: HostInfo,
     catalog: Catalog,
     package_paths: Vec<String>,
+    cancel: CancelFlag,
 ) {
     let total = package_paths.len();
     let mut failure: Option<String> = None;
+    let mut cancelled = false;
 
     for (position, path) in package_paths.iter().enumerate() {
         let Some(pkg) = catalog.find(path) else {
@@ -33,27 +35,38 @@ pub fn run_install(
         let path_for_closure = path.clone();
         let label_for_closure = label.clone();
 
-        let result = engine::downloader::install_package(pkg, &host, &sdk, move |progress| {
-            let dto = to_dto(
-                &path_for_closure,
-                &label_for_closure,
-                index,
-                total,
-                progress,
-            );
-            let _ = app_for_closure.emit(PROGRESS_EVENT, dto);
-        });
+        let result =
+            engine::downloader::install_package(pkg, &host, &sdk, &cancel, move |progress| {
+                let dto = to_dto(
+                    &path_for_closure,
+                    &label_for_closure,
+                    index,
+                    total,
+                    progress,
+                );
+                let _ = app_for_closure.emit(PROGRESS_EVENT, dto);
+            });
 
-        if let Err(e) = result {
-            failure = Some(e.to_string());
-            break;
+        match result {
+            Ok(dir) => log::info!("installed {path} into {}", dir.display()),
+            Err(engine::EngineError::Cancelled) => {
+                log::info!("install of {path} cancelled");
+                cancelled = true;
+                break;
+            }
+            Err(e) => {
+                log::error!("install of {path} failed: {e}");
+                failure = Some(e.to_string());
+                break;
+            }
         }
     }
 
     let _ = app.emit(
         FINISHED_EVENT,
         InstallFinishedDto {
-            ok: failure.is_none(),
+            ok: failure.is_none() && !cancelled,
+            cancelled,
             error: failure,
         },
     );

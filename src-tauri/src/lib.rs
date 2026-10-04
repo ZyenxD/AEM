@@ -3,13 +3,31 @@ mod dto;
 mod install;
 mod state;
 
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app_state = state::AppState::new().expect("could not initialise application state");
-
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("avdhub".into()),
+                    },
+                ))
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::Stdout,
+                ))
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
-        .manage(app_state)
+        .setup(|app| {
+            // Built here, after the log plugin, so its startup facts are logged.
+            let app_state = state::AppState::new()?;
+            app.manage(app_state);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::get_setup_status,
             commands::refresh_catalog,
@@ -26,6 +44,10 @@ pub fn run() {
             commands::packages_needed_for,
             commands::core_packages_needed,
             commands::start_install,
+            commands::cancel_install,
+            commands::check_space,
+            commands::check_acceleration,
+            commands::open_windows_features,
         ])
         .run(tauri::generate_context!())
         .expect("error while running application");

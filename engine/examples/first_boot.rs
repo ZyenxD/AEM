@@ -59,26 +59,32 @@ fn main() -> engine::Result<()> {
 
     for pkg in &wanted {
         println!("\nInstalling {} ...", pkg.path);
-        downloader::install_package(pkg, &host, &sdk, |p| match p {
-            downloader::Progress::Started { total_bytes } => {
-                println!("  {} MB to download", total_bytes / 1_048_576)
-            }
-            downloader::Progress::Downloading {
-                done_bytes,
-                total_bytes,
-            } => {
-                let pct = done_bytes
-                    .saturating_mul(100)
-                    .checked_div(total_bytes)
-                    .unwrap_or(0);
-                print!("\r  {pct}% ({} MB)", done_bytes / 1_048_576);
-                use std::io::Write;
-                let _ = std::io::stdout().flush();
-            }
-            downloader::Progress::Verifying => println!("\n  verifying checksum"),
-            downloader::Progress::Unpacking => println!("  unpacking"),
-            downloader::Progress::Finished { .. } => println!("  done"),
-        })?;
+        downloader::install_package(
+            pkg,
+            &host,
+            &sdk,
+            &downloader::CancelFlag::new(),
+            |p| match p {
+                downloader::Progress::Started { total_bytes } => {
+                    println!("  {} MB to download", total_bytes / 1_048_576)
+                }
+                downloader::Progress::Downloading {
+                    done_bytes,
+                    total_bytes,
+                } => {
+                    let pct = done_bytes
+                        .saturating_mul(100)
+                        .checked_div(total_bytes)
+                        .unwrap_or(0);
+                    print!("\r  {pct}% ({} MB)", done_bytes / 1_048_576);
+                    use std::io::Write;
+                    let _ = std::io::stdout().flush();
+                }
+                downloader::Progress::Verifying => println!("\n  verifying checksum"),
+                downloader::Progress::Unpacking => println!("  unpacking"),
+                downloader::Progress::Finished { .. } => println!("  done"),
+            },
+        )?;
     }
 
     let installed = sdk

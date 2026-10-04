@@ -120,6 +120,21 @@ pub fn stop(sdk: &SdkLayout, emulator: &RunningEmulator) -> Result<()> {
     Ok(())
 }
 
+/// Start the adb server up front so later calls are fast. Errors are ignored:
+/// the first real adb call will report them.
+pub fn warm_up(sdk: &SdkLayout) {
+    if let Some(adb) = sdk.adb_bin() {
+        let mut command = Command::new(adb);
+        command
+            .arg("start-server")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        hide_console(&mut command);
+        let _ = command.status();
+    }
+}
+
 fn run_capture(program: &Path, args: &[&str]) -> Result<String> {
     let mut command = Command::new(program);
     command.args(args);
@@ -132,11 +147,11 @@ fn run_capture(program: &Path, args: &[&str]) -> Result<String> {
 
 /// Stop Windows from flashing a console window for every adb call.
 #[cfg(windows)]
-fn hide_console(command: &mut Command) {
+pub(crate) fn hide_console(command: &mut Command) {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     command.creation_flags(CREATE_NO_WINDOW);
 }
 
 #[cfg(not(windows))]
-fn hide_console(_command: &mut Command) {}
+pub(crate) fn hide_console(_command: &mut Command) {}

@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 
+import { friendly, type FriendlyError } from './errors';
 import type { Device } from './models';
 import { TauriService } from './tauri.service';
 
@@ -9,7 +10,7 @@ export class DevicesStore {
 
   readonly devices = signal<Device[]>([]);
   readonly loading = signal(false);
-  readonly error = signal<string | null>(null);
+  readonly error = signal<FriendlyError | null>(null);
 
   readonly isEmpty = computed(() => !this.loading() && this.devices().length === 0);
   readonly runningCount = computed(() => this.devices().filter((d) => d.running).length);
@@ -22,7 +23,7 @@ export class DevicesStore {
     try {
       this.devices.set(await this.tauri.listDevices());
     } catch (e) {
-      this.error.set(String(e));
+      this.error.set(friendly(e));
     } finally {
       this.loading.set(false);
     }

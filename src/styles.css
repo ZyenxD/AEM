@@ -41,3 +41,24 @@ progress { width: 100%; }
   max-height: 280px; overflow: auto; white-space: pre-wrap;
   background: var(--panel); padding: 12px; border-radius: var(--radius);
 }
+
+.note { color: var(--pending); }
+.error-box {
+  color: var(--text); border: 1px solid var(--danger); border-radius: var(--radius);
+  padding: 10px 14px; margin: 12px 0;
+}
+.error-box strong { color: var(--danger); }
+.error-box pre { white-space: pre-wrap; font-size: 12px; color: var(--muted); }
+
+.accel-panel {
+  background: var(--panel); border: 1px solid var(--pending); border-radius: var(--radius);
+  padding: 4px 16px 12px; margin: 12px 0;
+}
+.accel-panel .steps { padding-left: 20px; }
+.accel-panel .badge {
+  font-size: 12px; margin-left: 8px; padding: 1px 6px; border-radius: 6px;
+  border: 1px solid var(--pending); color: var(--pending);
+}
+.accel-panel .command { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.accel-panel code { background: var(--bg); padding: 6px 8px; border-radius: 6px; word-break: break-all; }
+.accel-panel pre { white-space: pre-wrap; font-size: 12px; color: var(--muted); }

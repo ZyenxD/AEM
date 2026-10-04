@@ -7,17 +7,12 @@
   <p class="muted">Loading…</p>
 }
 
-@if (store.error(); as err) {
-  <p class="error">{{ err }}</p>
-}
+<app-error [error]="store.error()" />
 
-@if (actionError(); as err) {
-  <div class="error">
-    <p>{{ err.message }}</p>
-    @if (err.message !== err.details) {
-      <details><summary>Details</summary><code>{{ err.details }}</code></details>
-    }
-  </div>
+<app-error [error]="actionError()" />
+
+@if (accelReport(); as report) {
+  <app-accel-panel [report]="report" (recheck)="recheckAccel()" (startAnyway)="startAnyway()" />
 }
 
 @if (store.isEmpty()) {

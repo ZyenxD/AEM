@@ -176,6 +176,10 @@ pub async fn launch_device(
     tauri::async_runtime::spawn_blocking(move || {
         let avd_home = avd_home()?;
         let avd = engine::avd::find(&avd_home, &name).map_err(|e| e.to_string())?;
+        log::info!(
+            "launching {name} with {:?} (cold boot: {cold_boot}, wipe: {wipe_data})",
+            sdk.emulator_bin()
+        );
         engine::process::launch(
             &sdk,
             &avd,
@@ -335,10 +339,71 @@ pub async fn start_install(
         return Err("the licence must be accepted before installing".to_string());
     }
 
+    // A previous cancellation must not abort this new job.
+    state.cancel.reset();
+    let cancel = state.cancel.clone();
+    log::info!("starting install of {package_paths:?}");
+
     // No `.await`: the job keeps running after this command returns.
     tauri::async_runtime::spawn_blocking(move || {
-        crate::install::run_install(app, sdk, host, catalog, package_paths);
+        crate::install::run_install(app, sdk, host, catalog, package_paths, cancel);
     });
 
     Ok(())
+}
+
+/// Synchronous on purpose: setting an atomic flag takes nanoseconds.
+#[tauri::command]
+pub fn cancel_install(state: State<'_, AppState>) {
+    log::info!("cancel requested");
+    state.cancel.cancel();
+}
+
+#[tauri::command]
+pub async fn check_space(
+    state: State<'_, AppState>,
+    package_paths: Vec<String>,
+) -> Result<SpaceCheckDto, String> {
+    let sdk = state.sdk()?;
+    let host = state.host.clone();
+    let catalog = catalog_or_fetch(&state).await?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let packages: Vec<&RemotePackage> = package_paths
+            .iter()
+            .filter_map(|p| catalog.find(p))
+            .collect();
+        let needed = engine::downloader::space_needed(&packages, &host);
+        let available = engine::host::free_disk_bytes(&sdk.root);
+
+        SpaceCheckDto {
+            needed_mb: needed / 1_048_576,
+            available_mb: available.map(|b| b / 1_048_576),
+            // Unknown free space: let it try rather than block on a failed measurement.
+            enough: available.map(|a| a >= needed).unwrap_or(true),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+// ---- acceleration ----
+
+#[tauri::command]
+pub async fn check_acceleration(
+    state: State<'_, AppState>,
+) -> Result<engine::accel::AccelReport, String> {
+    let sdk = state.sdk()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let report = engine::accel::check(&sdk).map_err(|e| e.to_string())?;
+        log::info!("accel check: {:?} ({})", report.status, report.raw_message);
+        Ok(report)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn open_windows_features() -> Result<(), String> {
+    engine::accel::open_windows_features().map_err(|e| e.to_string())
 }

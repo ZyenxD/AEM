@@ -1,5 +1,5 @@
 import { DecimalPipe } from '@angular/common';
-import { Component, input } from '@angular/core';
+import { Component, input, output } from '@angular/core';
 
 import type { InstallProgress } from '../core/models';
 
@@ -21,9 +21,12 @@ import type { InstallProgress } from '../core/models';
     } @else {
       <p class="muted">Starting…</p>
     }
-    <p class="muted small">Closing the window will interrupt the download.</p>
+    <div class="actions">
+      <button type="button" (click)="cancel.emit()">Cancel</button>
+    </div>
   `,
 })
 export class InstallProgressComponent {
   readonly progress = input<InstallProgress | null>(null);
+  readonly cancel = output<void>();
 }

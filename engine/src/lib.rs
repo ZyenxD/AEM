@@ -1,3 +1,4 @@
+pub mod accel;
 pub mod avd;
 pub mod downloader;
 pub mod host;
