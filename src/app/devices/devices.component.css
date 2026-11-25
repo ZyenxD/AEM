@@ -11,3 +11,4 @@
   padding: 10px 14px; border: 1px solid var(--danger); border-radius: var(--radius);
 }
 .empty { text-align: center; padding: 48px 0; }
+.diagnostics { display: flex; align-items: center; gap: 12px; margin-top: 24px; }

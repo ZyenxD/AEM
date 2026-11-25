@@ -58,3 +58,10 @@
     }
   }
 </ul>
+
+<footer class="diagnostics">
+  <button (click)="copyDiagnostics()">{{ copied() ? 'Copied' : 'Copy diagnostics' }}</button>
+  <span class="muted small">
+    Copies your setup details (including folder paths) so you can paste them into a bug report.
+  </span>
+</footer>

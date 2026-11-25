@@ -1,3 +1,15 @@
 <main class="container">
+  @if (updates.available(); as update) {
+    <div class="update-banner">
+      <span>AEM {{ update.version }} is available.</span>
+      <button class="primary" (click)="updates.installNow()" [disabled]="updates.installing()">
+        {{ updates.installing() ? 'Installing…' : 'Update and restart' }}
+      </button>
+      <button (click)="updates.dismiss()" [disabled]="updates.installing()">Later</button>
+      @if (updates.error(); as error) {
+        <span class="error small">{{ error }}</span>
+      }
+    </div>
+  }
   <router-outlet />
 </main>

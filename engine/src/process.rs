@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -69,6 +69,22 @@ pub fn launch(sdk: &SdkLayout, avd: &Avd, options: &LaunchOptions) -> Result<u32
         },
         Err(_) => (Stdio::null(), Stdio::null()),
     };
+
+    // The emulator shells out to `adb` by name and resolves it from PATH, not
+    // from ANDROID_SDK_ROOT. An old adb there answers instead of ours, and the
+    // two servers kill each other until the device never reports booted.
+    // Ours goes first so the client the emulator uses matches the one `running()` uses.
+    if let Some(adb) = sdk.adb_bin()
+        && let Some(tools_dir) = adb.parent()
+    {
+        let mut entries = vec![tools_dir.to_path_buf()];
+        if let Some(existing) = std::env::var_os("PATH") {
+            entries.extend(std::env::split_paths(&existing));
+        }
+        if let Ok(joined) = std::env::join_paths(entries) {
+            command.env("PATH", joined);
+        }
+    }
 
     // The emulator resolves the device's image relative to the SDK root.
     command
@@ -206,6 +222,35 @@ pub fn warm_up(sdk: &SdkLayout) {
     }
 }
 
+/// An `adb` earlier on the PATH than ours, if there is one.
+///
+/// The emulator resolves `adb` from PATH, so a stale copy there breaks device
+/// status for emulators AEM did not launch. We cannot fix those; we can say so.
+pub fn foreign_adb_on_path(sdk: &SdkLayout) -> Option<PathBuf> {
+    let ours = sdk.adb_bin();
+    let file_name = if cfg!(windows) { "adb.exe" } else { "adb" };
+
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(file_name);
+        if !candidate.is_file() {
+            continue;
+        }
+        match &ours {
+            Some(ours) if same_file(ours, &candidate) => return None, // ours wins
+            _ => return Some(candidate),
+        }
+    }
+    None
+}
+
+fn same_file(a: &Path, b: &Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
+}
+
 fn run_capture(program: &Path, args: &[&str]) -> Result<String> {
     let mut command = Command::new(program);
     command.args(args);
@@ -280,6 +325,14 @@ mod tests {
         assert!(sdk_for_avd(&avd, &ours, &candidates).is_none());
 
         fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn no_adb_anywhere_means_no_foreign_adb() {
+        // An SDK with no platform-tools and a PATH we do not control:
+        // the function must not panic and must not claim ours is foreign.
+        let sdk = SdkLayout::new(std::env::temp_dir().join("avdhub-no-such-sdk"), true);
+        let _ = foreign_adb_on_path(&sdk); // either None or a real system adb
     }
 
     #[test]

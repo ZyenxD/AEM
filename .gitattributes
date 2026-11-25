@@ -1,0 +1,2 @@
+# Real emulator captures: keep LF so diffs stay clean on Windows checkouts.
+engine/tests/fixtures/*.txt text eol=lf

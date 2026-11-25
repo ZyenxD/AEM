@@ -1,0 +1,4 @@
+accel:
+0
+WHPX(10.0.19045) is installed and usable.
+accel

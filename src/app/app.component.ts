@@ -2,6 +2,7 @@ import { Component, inject } from '@angular/core';
 import { Router, RouterOutlet } from '@angular/router';
 
 import { TauriService } from './core/tauri.service';
+import { UpdatesService } from './core/updates.service';
 
 @Component({
   selector: 'app-root',
@@ -12,9 +13,11 @@ import { TauriService } from './core/tauri.service';
 export class AppComponent {
   private readonly tauri = inject(TauriService);
   private readonly router = inject(Router);
+  readonly updates = inject(UpdatesService);
 
   constructor() {
     void this.checkSetup();
+    void this.updates.checkQuietly();
   }
 
   /** Send the user to first-run setup only when the core tools are missing. */

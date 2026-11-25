@@ -74,11 +74,22 @@ pub fn check(sdk: &SdkLayout) -> Result<AccelReport> {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    Ok(classify(&text, HostOs::current()))
+    Ok(classify_with_firmware(
+        &text,
+        HostOs::current(),
+        firmware_virtualization_enabled(),
+    ))
 }
 
 /// Turn the emulator's output into a verdict. Pure function: unit-testable.
 pub fn classify(output: &str, os: HostOs) -> AccelReport {
+    classify_with_firmware(output, os, None)
+}
+
+/// As `classify`, plus what the CPU says about firmware virtualisation.
+/// `firmware = Some(false)` outranks the message: the BIOS is the real blocker,
+/// whatever the emulator chose to complain about.
+pub fn classify_with_firmware(output: &str, os: HostOs, firmware: Option<bool>) -> AccelReport {
     let lowered = output.to_lowercase();
     let message = extract_message(output);
 
@@ -104,7 +115,12 @@ pub fn classify(output: &str, os: HostOs) -> AccelReport {
     }
 
     match os {
-        HostOs::Windows => classify_windows(&lowered, message),
+        HostOs::Windows => {
+            if firmware == Some(false) {
+                return windows_firmware_report(message);
+            }
+            classify_windows(&lowered, message)
+        }
         HostOs::MacOs => AccelReport {
             status: AccelStatus::Unknown,
             summary: "Hardware acceleration does not appear to be available.".to_string(),
@@ -145,6 +161,38 @@ fn extract_message(output: &str) -> String {
         .to_string()
 }
 
+/// Does the CPU report virtualisation enabled in firmware?
+///
+/// `None` when we cannot tell (not Windows, or the query failed), which the
+/// classifier treats as "no opinion" rather than as a verdict.
+#[cfg(windows)]
+pub fn firmware_virtualization_enabled() -> Option<bool> {
+    let mut command = std::process::Command::new("powershell");
+    command.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "(Get-CimInstance Win32_Processor | Select-Object -First 1).VirtualizationFirmwareEnabled",
+    ]);
+    crate::process::hide_console(&mut command);
+
+    let output = command.output().ok()?;
+    match String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
+#[cfg(not(windows))]
+pub fn firmware_virtualization_enabled() -> Option<bool> {
+    None
+}
+
 fn classify_windows(lowered: &str, message: String) -> AccelReport {
     // The CPU's virtualisation extensions are switched off in firmware.
     let firmware_off = lowered.contains("vt-x")
@@ -154,33 +202,7 @@ fn classify_windows(lowered: &str, message: String) -> AccelReport {
         || lowered.contains("virtualization is not enabled");
 
     if firmware_off {
-        return AccelReport {
-            status: AccelStatus::VirtualizationDisabled,
-            summary: "Your computer's virtualisation feature is switched off.".to_string(),
-            raw_message: message,
-            fix_steps: vec![
-                FixStep {
-                    title: "Check Task Manager".to_string(),
-                    detail: "Press Ctrl+Shift+Esc, open the Performance tab, select CPU, \
-                             and look for \"Virtualization\". If it says Disabled, it must \
-                             be switched on in your computer's firmware."
-                        .to_string(),
-                    command: None,
-                    requires_admin: false,
-                },
-                FixStep {
-                    title: "Turn on virtualisation in the BIOS/UEFI".to_string(),
-                    detail: "Restart and open the firmware settings (usually F2, F10 or \
-                             Del during startup). Look for \"Intel VT-x\", \"AMD-V\", \
-                             \"SVM Mode\" or \"Virtualization Technology\" and enable it. \
-                             The exact name depends on your computer's manufacturer."
-                        .to_string(),
-                    command: None,
-                    requires_admin: false,
-                },
-            ],
-            requires_reboot: true,
-        };
+        return windows_firmware_report(message);
     }
 
     // Otherwise: the Windows Hypervisor Platform feature is not enabled.
@@ -219,6 +241,36 @@ fn classify_windows(lowered: &str, message: String) -> AccelReport {
     }
 }
 
+fn windows_firmware_report(message: String) -> AccelReport {
+    AccelReport {
+        status: AccelStatus::VirtualizationDisabled,
+        summary: "Your computer's virtualisation feature is switched off.".to_string(),
+        raw_message: message,
+        fix_steps: vec![
+            FixStep {
+                title: "Check Task Manager".to_string(),
+                detail: "Press Ctrl+Shift+Esc, open the Performance tab, select CPU, \
+                         and look for \"Virtualization\". If it says Disabled, it must \
+                         be switched on in your computer's firmware."
+                    .to_string(),
+                command: None,
+                requires_admin: false,
+            },
+            FixStep {
+                title: "Turn on virtualisation in the BIOS/UEFI".to_string(),
+                detail: "Restart and open the firmware settings (usually F2, F10 or \
+                         Del during startup). Look for \"Intel VT-x\", \"AMD-V\", \
+                         \"SVM Mode\" or \"Virtualization Technology\" and enable it. \
+                         The exact name depends on your computer's manufacturer."
+                    .to_string(),
+                command: None,
+                requires_admin: false,
+            },
+        ],
+        requires_reboot: true,
+    }
+}
+
 /// Open the Windows "Turn Windows features on or off" dialog.
 /// Does nothing on other platforms. Never runs anything elevated itself.
 pub fn open_windows_features() -> Result<()> {
@@ -237,9 +289,11 @@ pub fn open_windows_features() -> Result<()> {
 mod tests {
     use super::*;
 
-    // Reconstructed from documentation. Replace with real output captured on Windows.
-    const WINDOWS_OK: &str = "accel:\n0\nWHPX(10.0.22631) is installed and usable.\naccel\n";
-    const WINDOWS_NO_WHPX: &str = "accel:\n1\nWHPX is not installed on this machine\naccel\n";
+    // Real output from emulator 37.4.1.0 (build 16916650) on Windows 10 19045.
+    // Captured 2026-11-19 (WHPX off) and 2026-11-21 (WHPX on).
+    const WINDOWS_OK: &str = include_str!("../tests/fixtures/accel_windows_ok.txt");
+    const WINDOWS_NO_WHPX: &str = include_str!("../tests/fixtures/accel_windows_no_whpx.txt");
+    // Still invented: nobody has turned VT-x off in a BIOS yet. See Step A6.
     const WINDOWS_NO_VTX: &str =
         "accel:\n1\nVT-x is not supported by the host CPU or is disabled in the BIOS\naccel\n";
     const LINUX_OK: &str = "accel:\n0\nKVM (version 12) is installed and usable.\n";
@@ -281,6 +335,43 @@ mod tests {
         let report = classify(WINDOWS_NO_VTX, HostOs::Windows);
         assert_eq!(report.status, AccelStatus::VirtualizationDisabled);
         assert!(report.fix_steps[0].title.contains("Task Manager"));
+    }
+
+    #[test]
+    fn real_whpx_off_message_names_aehd_and_still_gives_whpx_steps() {
+        // The emulator blames its own driver, not WHPX. The verdict is correct
+        // only because nothing matches the firmware keywords and we fall through.
+        assert!(WINDOWS_NO_WHPX.to_lowercase().contains("hypervisor driver"));
+        assert!(!WINDOWS_NO_WHPX.to_lowercase().contains("whpx"));
+
+        let report = classify(WINDOWS_NO_WHPX, HostOs::Windows);
+        assert_eq!(report.status, AccelStatus::HypervisorDisabled);
+        assert!(report.requires_reboot);
+        assert!(
+            report.fix_steps.iter().any(|s| s
+                .command
+                .as_deref()
+                .is_some_and(|c| c.contains("HypervisorPlatform"))),
+            "the user must be pointed at WHPX, never at AEHD (it sunsets 2026-12-31)"
+        );
+    }
+
+    #[test]
+    fn firmware_off_outranks_the_emulator_message() {
+        // Even the AEHD message means "fix your BIOS" when the CPU says so.
+        let report = classify_with_firmware(WINDOWS_NO_WHPX, HostOs::Windows, Some(false));
+        assert_eq!(report.status, AccelStatus::VirtualizationDisabled);
+        assert!(report.fix_steps[0].title.contains("Task Manager"));
+
+        // With firmware on, or unknown, the message decides as before.
+        assert_eq!(
+            classify_with_firmware(WINDOWS_NO_WHPX, HostOs::Windows, Some(true)).status,
+            AccelStatus::HypervisorDisabled
+        );
+        assert_eq!(
+            classify_with_firmware(WINDOWS_NO_WHPX, HostOs::Windows, None).status,
+            AccelStatus::HypervisorDisabled
+        );
     }
 
     #[test]

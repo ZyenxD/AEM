@@ -1,4 +1,4 @@
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use engine::host::HostInfo;
 use engine::repository::{Catalog, RemotePackage};
@@ -344,12 +344,24 @@ pub async fn start_install(
     let cancel = state.cancel.clone();
     log::info!("starting install of {package_paths:?}");
 
+    // Set here, not inside the job: this command returns immediately, and a
+    // check in the first few milliseconds must already see it.
+    state
+        .installing
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+
     // No `.await`: the job keeps running after this command returns.
     tauri::async_runtime::spawn_blocking(move || {
         crate::install::run_install(app, sdk, host, catalog, package_paths, cancel);
     });
 
     Ok(())
+}
+
+/// True while a download or unpack is in progress. The updater asks before prompting.
+#[tauri::command]
+pub fn is_installing(state: State<'_, AppState>) -> bool {
+    state.is_installing()
 }
 
 /// Synchronous on purpose: setting an atomic flag takes nanoseconds.
@@ -406,4 +418,72 @@ pub async fn check_acceleration(
 #[tauri::command]
 pub async fn open_windows_features() -> Result<(), String> {
     engine::accel::open_windows_features().map_err(|e| e.to_string())
+}
+
+// ---- diagnostics ----
+
+/// Everything needed to understand a user's machine, as pasteable text.
+#[tauri::command]
+pub async fn collect_diagnostics(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let sdk = state.sdk()?;
+    let host = state.host.clone();
+    let version = app.package_info().version.to_string();
+    let log_dir = app.path().app_log_dir().ok();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut out = String::new();
+        out.push_str(&format!("AEM {version}\n"));
+        out.push_str(&format!(
+            "host: {:?} {:?} ({:?})\n",
+            host.os, host.arch, host.preferred_abi
+        ));
+        out.push_str(&format!("ram: {} MB\n", host.total_ram_bytes / 1_048_576));
+        out.push_str(&format!(
+            "sdk: {} (ours: {})\n",
+            sdk.root.display(),
+            sdk.managed_by_us
+        ));
+        out.push_str(&format!("emulator: {:?}\n", sdk.emulator_bin()));
+        out.push_str(&format!("adb: {:?}\n", sdk.adb_bin()));
+
+        match engine::process::foreign_adb_on_path(&sdk) {
+            Some(other) => out.push_str(&format!(
+                "WARNING other adb first on PATH: {}\n",
+                other.display()
+            )),
+            None => out.push_str("adb on PATH: ours (or none)\n"),
+        }
+
+        out.push_str(&format!("images: {}\n", sdk.installed_images().len()));
+        out.push_str(&format!(
+            "free disk: {:?} MB\n",
+            engine::host::free_disk_bytes(&sdk.root).map(|b| b / 1_048_576)
+        ));
+
+        match engine::accel::check(&sdk) {
+            Ok(report) => out.push_str(&format!(
+                "accel: {:?} — {}\n",
+                report.status, report.raw_message
+            )),
+            Err(e) => out.push_str(&format!("accel: check failed: {e}\n")),
+        }
+
+        if let Some(dir) = log_dir {
+            let path = dir.join("avdhub.log");
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                let tail: Vec<&str> = text.lines().rev().take(40).collect();
+                out.push_str("\n--- last 40 log lines ---\n");
+                for line in tail.into_iter().rev() {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+        }
+        out
+    })
+    .await
+    .map_err(|e| e.to_string())
 }

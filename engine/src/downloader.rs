@@ -109,7 +109,7 @@ pub fn install_package(
     if install_dir.exists() {
         fs::remove_dir_all(&install_dir).map_err(|e| io(&install_dir, e))?;
     }
-    extract_zip(&zip_path, &install_dir)?;
+    extract_zip(&zip_path, &install_dir, cancel)?;
     fs::remove_file(&zip_path).ok();
 
     on_progress(Progress::Finished {
@@ -191,7 +191,10 @@ pub fn sha1_of_file(path: &Path) -> Result<String> {
 }
 
 /// Unpack a zip into `dest`.
-pub fn extract_zip(zip_path: &Path, dest: &Path) -> Result<()> {
+///
+/// Checks `cancel` between entries: a large image takes minutes to unpack, and
+/// a Cancel button that does nothing for that long reads as a hang.
+pub fn extract_zip(zip_path: &Path, dest: &Path, cancel: &CancelFlag) -> Result<()> {
     let file = File::open(zip_path).map_err(|e| io(zip_path, e))?;
     let mut archive =
         zip::ZipArchive::new(file).map_err(|e| EngineError::Archive(e.to_string()))?;
@@ -212,6 +215,13 @@ pub fn extract_zip(zip_path: &Path, dest: &Path) -> Result<()> {
 
     // Pass 2: write files out.
     for i in 0..archive.len() {
+        if cancel.is_cancelled() {
+            // A half-written package is worse than none: the folder would look
+            // installed to `installed_images()`.
+            fs::remove_dir_all(dest).ok();
+            return Err(EngineError::Cancelled);
+        }
+
         let mut entry = archive
             .by_index(i)
             .map_err(|e| EngineError::Archive(e.to_string()))?;
@@ -285,7 +295,7 @@ mod tests {
         fs::write(&zip_path, zip_bytes).unwrap();
 
         let dest = tmp.join("out");
-        extract_zip(&zip_path, &dest).unwrap();
+        extract_zip(&zip_path, &dest, &CancelFlag::new()).unwrap();
 
         assert!(dest.join("system.img").exists());
         assert!(dest.join("data/hi.txt").exists());
@@ -303,7 +313,7 @@ mod tests {
         fs::write(&zip_path, zip_bytes).unwrap();
 
         let dest = tmp.join("out");
-        extract_zip(&zip_path, &dest).unwrap();
+        extract_zip(&zip_path, &dest, &CancelFlag::new()).unwrap();
         assert!(dest.join("adb").exists());
         assert!(dest.join("NOTICE.txt").exists());
 
@@ -387,6 +397,27 @@ mod tests {
 
         assert!(matches!(result, Err(EngineError::Cancelled)));
         assert!(!dest.exists());
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn cancel_during_unpacking_stops_and_leaves_nothing() {
+        let tmp = std::env::temp_dir().join("avdhub-zip-cancel");
+        fs::remove_dir_all(&tmp).ok();
+        fs::create_dir_all(&tmp).unwrap();
+
+        let zip_bytes = build_zip(&[("a/one.txt", b"1"), ("a/two.txt", b"2")]);
+        let zip_path = tmp.join("c.zip");
+        fs::write(&zip_path, zip_bytes).unwrap();
+
+        let cancel = CancelFlag::new();
+        cancel.cancel(); // already cancelled before the first entry
+
+        let dest = tmp.join("out");
+        let result = extract_zip(&zip_path, &dest, &cancel);
+
+        assert!(matches!(result, Err(EngineError::Cancelled)));
+        assert!(!dest.exists(), "a cancelled unpack must leave no folder");
         fs::remove_dir_all(&tmp).ok();
     }
 

@@ -19,9 +19,12 @@ pub fn run() {
                     tauri_plugin_log::TargetKind::Stdout,
                 ))
                 .level(log::LevelFilter::Info)
+                .timezone_strategy(tauri_plugin_log::TimezoneStrategy::UseLocal)
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             // Built here, after the log plugin, so its startup facts are logged.
             let app_state = state::AppState::new()?;
@@ -48,6 +51,8 @@ pub fn run() {
             commands::check_space,
             commands::check_acceleration,
             commands::open_windows_features,
+            commands::is_installing,
+            commands::collect_diagnostics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running application");

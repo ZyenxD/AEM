@@ -86,6 +86,11 @@ export class TauriService {
     return invoke<void>('start_install', { packagePaths });
   }
 
+  /** True while a download or unpack is running; the updater waits for it. */
+  isInstalling(): Promise<boolean> {
+    return invoke<boolean>('is_installing');
+  }
+
   /** The `install-finished` event then arrives with `cancelled: true`. */
   cancelInstall(): Promise<void> {
     return invoke<void>('cancel_install');
@@ -103,6 +108,12 @@ export class TauriService {
 
   openWindowsFeatures(): Promise<void> {
     return invoke<void>('open_windows_features');
+  }
+
+  // ---- diagnostics ----
+
+  collectDiagnostics(): Promise<string> {
+    return invoke<string>('collect_diagnostics');
   }
 
   // Tauri events arrive outside Angular's zone, so re-enter it or the view never updates.

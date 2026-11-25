@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use engine::downloader::{CancelFlag, Progress};
 use engine::host::HostInfo;
@@ -60,6 +60,13 @@ pub fn run_install(
                 break;
             }
         }
+    }
+
+    // Whatever happened, the job is over: let the updater proceed again.
+    if let Some(state) = app.try_state::<crate::state::AppState>() {
+        state
+            .installing
+            .store(false, std::sync::atomic::Ordering::Relaxed);
     }
 
     let _ = app.emit(

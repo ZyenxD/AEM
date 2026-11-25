@@ -22,6 +22,10 @@ export class DevicesComponent implements OnInit, OnDestroy {
   readonly busy = signal<string | null>(null);
   readonly actionError = signal<FriendlyError | null>(null);
   readonly confirmingDelete = signal<string | null>(null);
+  /** Devices we have asked to stop. Shutdown takes ~25 s with a snapshot save. */
+  readonly stopping = signal<Set<string>>(new Set());
+  /** Briefly true after "Copy diagnostics" succeeds. */
+  readonly copied = signal(false);
   /** Set when acceleration is missing; the panel replaces a launch into a frozen window. */
   readonly accelReport = signal<AccelReport | null>(null);
   private accelPendingDevice: Device | null = null;
@@ -72,11 +76,13 @@ export class DevicesComponent implements OnInit, OnDestroy {
   async stop(device: Device): Promise<void> {
     this.busy.set(device.name);
     this.actionError.set(null);
+    this.stopping.update((s) => new Set(s).add(device.name));
     try {
       await this.tauri.stopDevice(device.name);
       setTimeout(() => void this.store.refresh(), 1500);
     } catch (e) {
       this.actionError.set(friendly(e));
+      this.clearStopping(device.name);
     } finally {
       this.busy.set(null);
     }
@@ -118,7 +124,26 @@ export class DevicesComponent implements OnInit, OnDestroy {
     this.accelPendingDevice = null;
   }
 
+  private clearStopping(name: string): void {
+    this.stopping.update((s) => {
+      const next = new Set(s);
+      next.delete(name);
+      return next;
+    });
+  }
+
+  async copyDiagnostics(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(await this.tauri.collectDiagnostics());
+      this.copied.set(true);
+      setTimeout(() => this.copied.set(false), 2000);
+    } catch (e) {
+      this.actionError.set(friendly(e));
+    }
+  }
+
   statusLabel(device: Device): string {
+    if (this.stopping().has(device.name) && device.running) return 'Stopping…';
     if (device.booted) return 'Running';
     if (device.running) return 'Starting…';
     return 'Stopped';
