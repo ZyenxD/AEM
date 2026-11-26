@@ -109,7 +109,11 @@ pub fn install_package(
     if install_dir.exists() {
         fs::remove_dir_all(&install_dir).map_err(|e| io(&install_dir, e))?;
     }
-    extract_zip(&zip_path, &install_dir, cancel)?;
+    if let Err(e) = extract_zip(&zip_path, &install_dir, cancel) {
+        // Cancelled or broken: the archive is no use now, and it is as big as the download.
+        fs::remove_file(&zip_path).ok();
+        return Err(e);
+    }
     fs::remove_file(&zip_path).ok();
 
     on_progress(Progress::Finished {
@@ -247,7 +251,14 @@ pub fn extract_zip(zip_path: &Path, dest: &Path, cancel: &CancelFlag) -> Result<
             fs::create_dir_all(parent).map_err(|e| io(parent, e))?;
         }
         let mut out_file = File::create(&out_path).map_err(|e| io(&out_path, e))?;
-        std::io::copy(&mut entry, &mut out_file).map_err(|e| io(&out_path, e))?;
+        let finished =
+            copy_with_cancel(&mut entry, &mut out_file, cancel).map_err(|e| io(&out_path, e))?;
+        if !finished {
+            // Close the file first: Windows will not delete a file that is still open.
+            drop(out_file);
+            fs::remove_dir_all(dest).ok();
+            return Err(EngineError::Cancelled);
+        }
 
         #[cfg(unix)]
         {
@@ -259,6 +270,31 @@ pub fn extract_zip(zip_path: &Path, dest: &Path, cancel: &CancelFlag) -> Result<
         }
     }
     Ok(())
+}
+
+/// Copy in 4 MB chunks, checking `cancel` before each one.
+/// `Ok(true)` = finished, `Ok(false)` = cancelled part-way.
+///
+/// A system image's `system.img` is a single ~1.7 GB entry: checking only
+/// between entries left Cancel doing nothing for about 3 minutes.
+fn copy_with_cancel(
+    from: &mut impl Read,
+    to: &mut impl Write,
+    cancel: &CancelFlag,
+) -> std::io::Result<bool> {
+    let mut buf = vec![0u8; 4 * 1_048_576];
+    loop {
+        if cancel.is_cancelled() {
+            return Ok(false);
+        }
+        let n = match from.read(&mut buf) {
+            Ok(0) => return Ok(true),
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        to.write_all(&buf[..n])?;
+    }
 }
 
 #[cfg(test)]
@@ -419,6 +455,33 @@ mod tests {
         assert!(matches!(result, Err(EngineError::Cancelled)));
         assert!(!dest.exists(), "a cancelled unpack must leave no folder");
         fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn cancel_inside_one_large_entry_stops_the_copy() {
+        struct CancelAfterFirstRead<'a> {
+            inner: Cursor<Vec<u8>>,
+            cancel: &'a CancelFlag,
+        }
+        impl Read for CancelAfterFirstRead<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let n = self.inner.read(buf)?;
+                self.cancel.cancel();
+                Ok(n)
+            }
+        }
+
+        let cancel = CancelFlag::new();
+        let mut src = CancelAfterFirstRead {
+            inner: Cursor::new(vec![0u8; 16 * 1_048_576]),
+            cancel: &cancel,
+        };
+        let mut out = Vec::new();
+
+        let finished = copy_with_cancel(&mut src, &mut out, &cancel).unwrap();
+
+        assert!(!finished, "cancel set mid-entry must stop the copy");
+        assert_eq!(out.len(), 4 * 1_048_576, "stops after the first chunk");
     }
 
     #[test]

@@ -172,16 +172,27 @@ pub fn firmware_virtualization_enabled() -> Option<bool> {
         "-NoProfile",
         "-NonInteractive",
         "-Command",
-        "(Get-CimInstance Win32_Processor | Select-Object -First 1).VirtualizationFirmwareEnabled",
+        "(Get-CimInstance Win32_ComputerSystem).HypervisorPresent; \
+         (Get-CimInstance Win32_Processor | Select-Object -First 1).VirtualizationFirmwareEnabled",
     ]);
     crate::process::hide_console(&mut command);
 
     let output = command.output().ok()?;
-    match String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
+    parse_firmware_query(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// Two lines: `HypervisorPresent`, then `VirtualizationFirmwareEnabled`.
+///
+/// While a hypervisor runs (WHPX, Hyper-V, VBS, WSL2), Windows is itself a guest
+/// and the CPU reports the firmware flag as False even though VT-x is on. A
+/// running hypervisor proves VT-x is on, so it wins.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn parse_firmware_query(stdout: &str) -> Option<bool> {
+    let mut lines = stdout.lines().map(|l| l.trim().to_ascii_lowercase());
+    if lines.next()? == "true" {
+        return Some(true);
+    }
+    match lines.next()?.as_str() {
         "true" => Some(true),
         "false" => Some(false),
         _ => None,
@@ -372,6 +383,18 @@ mod tests {
             classify_with_firmware(WINDOWS_NO_WHPX, HostOs::Windows, None).status,
             AccelStatus::HypervisorDisabled
         );
+    }
+
+    #[test]
+    fn running_hypervisor_means_firmware_is_on() {
+        // Real output from the Windows test PC with WHPX on (2026-11-26).
+        assert_eq!(parse_firmware_query("True\r\nFalse\r\n"), Some(true));
+        // No hypervisor: the CPU's flag is trustworthy.
+        assert_eq!(parse_firmware_query("False\r\nFalse\r\n"), Some(false));
+        assert_eq!(parse_firmware_query("False\r\nTrue\r\n"), Some(true));
+        // CPU driver does not report it, or the query failed: no opinion.
+        assert_eq!(parse_firmware_query("False\r\n\r\n"), None);
+        assert_eq!(parse_firmware_query(""), None);
     }
 
     #[test]

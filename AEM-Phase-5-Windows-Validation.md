@@ -59,7 +59,7 @@ npm run build
 | --- | --- |
 | `fmt` prints nothing and exits 0 | |
 | `clippy` finishes with no warnings. On Windows it also compiles the PowerShell firmware query (`#[cfg(windows)]`), which the Mac cannot build | |
-| `cargo test`: **engine 30 passed**, `aem_lib` 2 passed, 0 failed | |
+| `cargo test`: **engine 32 passed**, `aem_lib` 2 passed, 0 failed | |
 | `Version 0.2.0 is consistent.` | |
 | Angular build ends with `Application bundle generation complete` | |
 
@@ -157,11 +157,15 @@ Cancel-during-download: ___  Full install still works: ___
 
 ### 4.1 The firmware query itself
 
+This is the query AEM runs (two lines: `HypervisorPresent`, then `VirtualizationFirmwareEnabled`):
+
 ```powershell
-(Get-CimInstance Win32_Processor | Select-Object -First 1).VirtualizationFirmwareEnabled
+(Get-CimInstance Win32_ComputerSystem).HypervisorPresent; (Get-CimInstance Win32_Processor | Select-Object -First 1).VirtualizationFirmwareEnabled
 ```
 
-**Expected:** `True` on the test PC. If it prints nothing, the CPU driver does not report it. AEM then treats it as "no opinion" and behaves exactly as before, which is acceptable. Note which one you got.
+**Expected with WHPX on:** `True` then `False`. The `False` is normal: while a hypervisor runs (WHPX, Hyper-V, VBS, WSL2), Windows is itself a guest and the CPU reports the firmware flag as False. AEM treats `HypervisorPresent = True` as proof that VT-x is on.
+
+**Expected with no hypervisor loaded:** `False` then `True`. If the second line is empty, the CPU driver does not report it; AEM then treats it as "no opinion" and behaves exactly as before, which is acceptable. Note which one you got.
 
 Output: ___
 
@@ -187,7 +191,7 @@ Result: ___
 
 Only if a machine is available where you can switch virtualisation off in the firmware.
 
-**Expected:** Task Manager → Performance → CPU shows *Virtualization: Disabled*, the 4.1 query prints `False`, and AEM's panel says *"Your computer's virtualisation feature is switched off."* with the **Check Task Manager** and **BIOS/UEFI** steps. Whatever the emulator prints, these are the steps shown.
+**Expected:** Task Manager → Performance → CPU shows *Virtualization: Disabled*, the 4.1 query prints `False` then `False`, and AEM's panel says *"Your computer's virtualisation feature is switched off."* with the **Check Task Manager** and **BIOS/UEFI** steps. Whatever the emulator prints, these are the steps shown.
 
 **Please save the emulator's `-accel-check` output from this machine.** It would replace the last invented fixture (`WINDOWS_NO_VTX` in `engine/src/accel.rs`).
 
@@ -366,7 +370,7 @@ Result: ___
 | --- | --- |
 | `cargo fmt --all -- --check` | clean |
 | `cargo clippy --workspace --all-targets -- -D warnings` | clean (now includes the Tauri app) |
-| `cargo test --workspace` | engine **30** passed, `aem_lib` 2 passed |
+| `cargo test --workspace` | engine **32** passed, `aem_lib` 2 passed |
 | Windows-only code (`firmware_virtualization_enabled`, `hide_console`) | type-checks and passes clippy for `x86_64-pc-windows-msvc`, built on its own. The full engine cannot cross-compile from the Mac because `ring` needs the MSVC C toolchain |
 | `foreign_adb_on_path` | stale adb first on PATH → reported. Ours first → `None`. No adb on PATH → `None` |
 | `npm run check:version` | passes at 0.2.0. Fails on one mismatched manifest and on a tag that disagrees |
